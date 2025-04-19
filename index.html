@@ -3,152 +3,1287 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quantum Kaleidoscope - Neural Field Visualization</title>
-    
-    <!-- Include ThreeJS and related libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    
-    <!-- Include SocketIO -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    
-    <!-- Include TweenJS -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
-    
-    <!-- Include DAT.GUI -->
-    <script src="https://cdn.jsdelivr.net/npm/dat.gui@0.7.9/build/dat.gui.min.js"></script>
-    
-    <!-- Custom Styles (unchanged from your input) -->
+    <title>Kaleidoscope AI - Quantum Visualization</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tippy.js/6.3.7/tippy.min.css">
     <style>
-        /* [Your CSS from above remains unchanged] */
+        :root {
+            --primary: #3a0ca3;
+            --secondary: #4cc9f0;
+            --accent: #f72585;
+            --dark: #101020;
+            --light: #ffffff;
+            --success: #06d6a0;
+            --warning: #ffd166;
+            --danger: #ef476f;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial', sans-serif;
+        }
+        body {
+            overflow: hidden;
+            background: radial-gradient(circle at center, #1a1a3a 0%, #000020 100%);
+        }
+        #visualization {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #particle-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+        #ui-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 3;
+            pointer-events: none;
+        }
+        .ui-element {
+            pointer-events: auto;
+        }
+        #control-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 300px;
+            background: rgba(16, 16, 32, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            border: 1px solid var(--secondary);
+            padding: 15px;
+            color: var(--light);
+            z-index: 10;
+            box-shadow: 0 0 20px rgba(76, 201, 240, 0.3);
+            transform: translateX(320px);
+            transition: transform 0.3s ease;
+        }
+        #control-panel.visible {
+            transform: translateX(0);
+        }
+        #control-panel h3 {
+            margin-bottom: 15px;
+            color: var(--secondary);
+            font-size: 16px;
+            border-bottom: 1px solid rgba(76, 201, 240, 0.3);
+            padding-bottom: 8px;
+        }
+        .control-row {
+            margin-bottom: 12px;
+        }
+        .control-row label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .slider-container input {
+            flex: 1;
+        }
+        .slider-container .value {
+            width: 40px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--secondary);
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 5px;
+            background: rgba(76, 201, 240, 0.2);
+            border-radius: 3px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 15px;
+            width: 15px;
+            border-radius: 50%;
+            background: var(--secondary);
+            cursor: pointer;
+        }
+        .button-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 15px;
+        }
+        .ctrl-btn {
+            background: rgba(58, 12, 163, 0.4);
+            border: 1px solid var(--primary);
+            color: var(--light);
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .ctrl-btn:hover {
+            background: var(--primary);
+        }
+        .ctrl-btn.active {
+            background: var(--primary);
+            border-color: var(--secondary);
+        }
+        .colorbox {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            border-radius: 3px;
+            cursor: pointer;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.2s;
+        }
+        .colorbox:hover {
+            transform: scale(1.1);
+            border-color: white;
+        }
+        .colorbox.active {
+            border-color: white;
+        }
+        .colors-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        #panel-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(16, 16, 32, 0.8);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 11;
+            border: 1px solid var(--secondary);
+            color: var(--secondary);
+            box-shadow: 0 0 10px rgba(76, 201, 240, 0.3);
+        }
+        #stats-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(16, 16, 32, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            border: 1px solid var(--secondary);
+            padding: 10px 15px;
+            color: var(--light);
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 10;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 15px;
+            margin-bottom: 4px;
+        }
+        .stat-value {
+            color: var(--secondary);
+        }
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(16, 16, 32, 0.9);
+            border-left: 3px solid var(--secondary);
+            color: var(--light);
+            padding: 12px 20px;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: transform 0.3s ease;
+            z-index: 100;
+        }
+        #toast.visible {
+            transform: translateX(-50%) translateY(0);
+        }
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, #1a1a3a 0%, #000020 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease;
+        }
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #loading h2 {
+            color: var(--light);
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        .loading-cube-container {
+            width: 100px;
+            height: 100px;
+            perspective: 800px;
+            margin-bottom: 30px;
+        }
+        .loading-cube {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transform: translateZ(-50px);
+            animation: loading-rotate 3s infinite linear;
+        }
+        .loading-face {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border: 2px solid var(--secondary);
+            background: rgba(76, 201, 240, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--secondary);
+            font-size: 24px;
+        }
+        .loading-face:nth-child(1) { transform: rotateY(0deg) translateZ(50px); }
+        .loading-face:nth-child(2) { transform: rotateY(90deg) translateZ(50px); }
+        .loading-face:nth-child(3) { transform: rotateY(180deg) translateZ(50px); }
+        .loading-face:nth-child(4) { transform: rotateY(-90deg) translateZ(50px); }
+        .loading-face:nth-child(5) { transform: rotateX(90deg) translateZ(50px); }
+        .loading-face:nth-child(6) { transform: rotateX(-90deg) translateZ(50px); }
+        @keyframes loading-rotate {
+            0% { transform: translateZ(-50px) rotateX(0deg) rotateY(0deg); }
+            100% { transform: translateZ(-50px) rotateX(360deg) rotateY(360deg); }
+        }
+        #progress-bar {
+            width: 300px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+        #progress-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, var(--accent), var(--secondary));
+            transition: width 0.5s ease;
+        }
+        #loading-text {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            margin-top: 10px;
+            font-family: monospace;
+        }
+        #context-menu {
+            position: absolute;
+            background: rgba(16, 16, 32, 0.9);
+            border: 1px solid var(--secondary);
+            border-radius: 5px;
+            padding: 5px 0;
+            min-width: 150px;
+            z-index: 100;
+            display: none;
+        }
+        .context-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--light);
+        }
+        .context-item:hover {
+            background: rgba(76, 201, 240, 0.2);
+        }
+        .context-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 5px 0;
+        }
+        #modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        #modal.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .modal-content {
+            background: rgba(26, 26, 46, 0.95);
+            border: 1px solid var(--secondary);
+            border-radius: 10px;
+            padding: 20px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid rgba(76, 201, 240, 0.3);
+            padding-bottom: 10px;
+        }
+        .modal-title {
+            color: var(--secondary);
+            font-size: 18px;
+        }
+        .modal-close {
+            color: var(--light);
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        .modal-body {
+            color: var(--light);
+            margin-bottom: 20px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .modal-btn {
+            background: rgba(58, 12, 163, 0.4);
+            border: 1px solid var(--primary);
+            color: var(--light);
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .modal-btn:hover {
+            background: var(--primary);
+        }
+        .modal-btn.primary {
+            background: var(--primary);
+            border-color: var(--secondary);
+        }
+        .modal-btn.primary:hover {
+            background: var(--secondary);
+            color: var(--dark);
+        }
+        #molecule-viewer {
+            width: 100%;
+            height: 300px;
+            margin-top: 10px;
+        }
+        @media (max-width: 768px) {
+            #control-panel {
+                width: 250px;
+            }
+            .button-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
-    <!-- Loading Screen -->
-    <div id="loading-screen">
-        <div id="loading-logo">
-            <div class="logo-center"></div>
-            <div class="logo-particle" style="animation-delay: 0s;"></div>
-            <div class="logo-particle" style="animation-delay: 0.5s;"></div>
-            <div class="logo-particle" style="animation-delay: 1s;"></div>
-            <div class="logo-particle" style="animation-delay: 1.5s;"></div>
-            <div class="logo-particle" style="animation-delay: 2s;"></div>
-            <div class="logo-particle" style="animation-delay: 2.5s;"></div>
-            <div class="logo-particle" style="animation-delay: 3s;"></div>
-            <div class="logo-particle" style="animation-delay: 3.5s;"></div>
+    <div id="loading">
+        <div class="loading-cube-container">
+            <div class="loading-cube">
+                <div class="loading-face"><i class="fas fa-atom"></i></div>
+                <div class="loading-face"><i class="fas fa-brain"></i></div>
+                <div class="loading-face"><i class="fas fa-project-diagram"></i></div>
+                <div class="loading-face"><i class="fas fa-cube"></i></div>
+                <div class="loading-face"><i class="fas fa-network-wired"></i></div>
+                <div class="loading-face"><i class="fas fa-microchip"></i></div>
+            </div>
         </div>
-        <div id="loading-text">QUANTUM KALEIDOSCOPE</div>
-        <div class="loading-bar-container">
-            <div class="loading-bar"></div>
+        <h2>Initializing Quantum Visualization</h2>
+        <div id="progress-bar">
+            <div id="progress-fill"></div>
         </div>
+        <div id="loading-text">Loading core components...</div>
     </div>
-    
-    <!-- Main Visualization Container -->
-    <div id="visualization-container"></div>
-    
-    <!-- Bloom Filter Layer -->
-    <div class="bloom-filter"></div>
-    
-    <!-- UI Container -->
-    <div id="ui-container">
-        <!-- Sidebar Toggle Button -->
-        <button id="sidebar-toggle">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12"></line>
-                <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-        </button>
-        
-        <!-- Main Sidebar -->
-        <div id="sidebar">
-            <div class="title-area">
-                <h1>Quantum Kaleidoscope</h1>
-                <p>Neural Field Visualization System</p>
-            </div>
-            
-            <div id="stats-panel">
-                <div class="stat-row">
-                    <span class="stat-label">Nodes:</span>
-                    <span class="stat-value" id="node-count">0</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Connections:</span>
-                    <span class="stat-value" id="connection-count">0</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Avg. Energy:</span>
-                    <span class="stat-value" id="avg-energy">0.00</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">FPS:</span>
-                    <span class="stat-value" id="fps">0</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Runtime:</span>
-                    <span class="stat-value" id="runtime">00:00:00</span>
+
+    <canvas id="visualization"></canvas>
+    <canvas id="particle-layer"></canvas>
+
+    <div id="ui-overlay">
+        <div id="panel-toggle" class="ui-element" data-tippy-content="Toggle Controls">
+            <i class="fas fa-cog"></i>
+        </div>
+
+        <div id="control-panel" class="ui-element">
+            <h3>Quantum Cube Controls</h3>
+
+            <div class="control-row">
+                <label>Cube Size</label>
+                <div class="slider-container">
+                    <input type="range" id="size-slider" min="5" max="30" value="15">
+                    <div class="value" id="size-value">15</div>
                 </div>
             </div>
-            
-            <div class="controls-area">
-                <h2>Neural Input</h2>
-                <textarea id="input-text" placeholder="Enter text to process through the quantum field..."></textarea>
-                <button id="process-button">Process Neural Input</button>
-            </div>
-            
-            <div class="insights-area">
-                <h2>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20z"></path>
-                        <path d="M12 16v-4"></path>
-                        <path d="M12 8h.01"></path>
-                    </svg>
-                    Quantum Insights
-                </h2>
-                <div id="insights-container">
-                    <!-- Insights will be added here -->
+
+            <div class="control-row">
+                <label>Node Density</label>
+                <div class="slider-container">
+                    <input type="range" id="density-slider" min="1" max="20" value="8">
+                    <div class="value" id="density-value">8</div>
                 </div>
+            </div>
+
+            <div class="control-row">
+                <label>Connection Threshold</label>
+                <div class="slider-container">
+                    <input type="range" id="connection-slider" min="1" max="15" value="5">
+                    <div class="value" id="connection-value">5</div>
+                </div>
+            </div>
+
+            <div class="control-row">
+                <label>Rotation Speed</label>
+                <div class="slider-container">
+                    <input type="range" id="rotation-slider" min="0" max="10" value="2">
+                    <div class="value" id="rotation-value">2</div>
+                </div>
+            </div>
+
+            <div class="control-row">
+                <label>Simulation Auto-Run</label>
+                <div class="slider-container">
+                    <input type="checkbox" id="auto-run-toggle">
+                    <label for="auto-run-toggle">Auto-Run</label>
+                </div>
+            </div>
+
+            <div class="control-row">
+                <label>Node Color</label>
+                <div class="colors-row">
+                    <div class="colorbox active" data-color="#f72585" style="background-color: #f72585;"></div>
+                    <div class="colorbox" data-color="#4cc9f0" style="background-color: #4cc9f0;"></div>
+                    <div class="colorbox" data-color="#7209b7" style="background-color: #7209b7;"></div>
+                    <div class="colorbox" data-color="#06d6a0" style="background-color: #06d6a0;"></div>
+                    <div class="colorbox" data-color="#ffd166" style="background-color: #ffd166;"></div>
+                </div>
+            </div>
+
+            <div class="button-grid">
+                <button class="ctrl-btn" id="reset-btn" data-tippy-content="Reset simulation">Reset</button>
+                <button class="ctrl-btn" id="add-nodes-btn" data-tippy-content="Add 10 nodes">Add Nodes</button>
+                <button class="ctrl-btn" id="run-step-btn" data-tippy-content="Run one simulation step">Run Step</button>
+                <button class="ctrl-btn" id="explosion-btn" data-tippy-content="Trigger quantum burst">Quantum Burst</button>
+                <button class="ctrl-btn" id="wireframe-btn" data-tippy-content="Toggle wireframe">Toggle Wireframe</button>
+                <button class="ctrl-btn" id="glow-btn" data-tippy-content="Toggle node glow">Toggle Glow</button>
+                <button class="ctrl-btn" id="view-molecule-btn" data-tippy-content="View predicted molecule">View Molecule</button>
+                <button class="ctrl-btn" id="fullscreen-btn" data-tippy-content="Toggle fullscreen">Fullscreen</button>
             </div>
         </div>
-        
-        <!-- Events Panel -->
-        <div id="events-panel">
-            <div id="events-panel-header">
-                <h3>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="16" y1="2" x2="16" y2="6"></line>
-                        <line x1="8" y1="2" x2="8" y2="6"></line>
-                        <line x1="3" y1="10" x2="21" y2="10"></line>
-                    </svg>
-                    System Events
-                </h3>
-                <button id="events-toggle">▲</button>
+
+        <div id="stats-panel" class="ui-element">
+            <div class="stat-row">
+                <div class="stat-label">FPS:</div>
+                <div class="stat-value" id="fps-value">0</div>
             </div>
-            <div id="events-container">
-                <!-- Events will be added here -->
+            <div class="stat-row">
+                <div class="stat-label">Nodes:</div>
+                <div class="stat-value" id="nodes-value">0</div>
             </div>
-        </div>
-        
-        <!-- Node Details Modal -->
-        <div id="node-details">
-            <div id="node-details-header">
-                <h3>Node Details</h3>
-                <button id="close-details">✕</button>
+            <div class="stat-row">
+                <div class="stat-label">Connections:</div>
+                <div class="stat-value" id="connections-value">0</div>
             </div>
-            <div id="node-details-container">
-                <!-- Node details will be added here -->
+            <div class="stat-row">
+                <div class="stat-label">Energy:</div>
+                <div class="stat-value" id="energy-value">0%</div>
+            </div>
+            <div class="stat-row">
+                <div class="stat-label">Molecule:</div>
+                <div class="stat-value" id="molecule-stat-value">None</div>
             </div>
         </div>
     </div>
 
-    <!-- JavaScript -->
-    <script src="main.js"></script>
+    <div id="toast"></div>
+
+    <div id="context-menu" class="ui-element">
+        <div class="context-item" id="ctx-add-node">Add Node Here</div>
+        <div class="context-item" id="ctx-clear-area">Clear Nearby Nodes</div>
+        <div class="context-item" id="ctx-explode-from-here">Burst From Here</div>
+        <div class="context-divider"></div>
+        <div class="context-item" id="ctx-view-molecule">View Molecule</div>
+    </div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Predicted Molecule</div>
+                <button class="modal-close">×</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <div id="molecule-viewer"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn" id="modal-cancel">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/3dmol/1.8.0/3dmol.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tippy.js/6.3.7/tippy-bundle.umd.min.js"></script>
+    <script>
+    (() => {
+        const API_BASE_URL = 'http://localhost:5000';
+        const state = {
+            controlPanelVisible: false,
+            mousePosition: { x: 0, y: 0 },
+            simulationState: null,
+            fpsSamples: [],
+            showContextMenu: false,
+            contextMenuPosition: { x: 0, y: 0 },
+            cubeWireframeVisible: true,
+            nodesGlowEnabled: true,
+            nodeColor: 0xf72585,
+            rotationSpeed: 2,
+            isDragging: false,
+            previousMousePosition: { x: 0, y: 0 },
+            autoRunSimulation: false,
+            lastClickTime: 0,
+            threeObjects: {
+                scene: null,
+                camera: null,
+                renderer: null,
+                cubeWireframe: null,
+                nodes: [],
+                connections: [],
+                raycaster: new THREE.Raycaster(),
+                pointLight: null
+            },
+            particleCanvas: null,
+            particleContext: null,
+            particles: [],
+            clock: new THREE.Clock(),
+            toastTimeout: null,
+            moleculeViewer: null,
+            uiElements: {
+                sliders: {
+                    size: null,
+                    density: null,
+                    connection: null,
+                    rotation: null
+                },
+                values: {
+                    size: null,
+                    density: null,
+                    connection: null,
+                    rotation: null
+                },
+                buttons: {
+                    reset: null,
+                    addNodes: null,
+                    runStep: null,
+                    explosion: null,
+                    wireframe: null,
+                    glow: null,
+                    viewMolecule: null,
+                    fullscreen: null
+                },
+                stats: {
+                    fps: null,
+                    nodes: null,
+                    connections: null,
+                    energy: null,
+                    molecule: null
+                },
+                autoRunToggle: null,
+                panelToggle: null,
+                contextMenu: null
+            }
+        };
+
+        async function fetchSimulationState() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/get_state`);
+                if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+                const data = await response.json();
+                state.simulationState = data;
+                updateVisualizationFromState();
+                updateUIFromState();
+            } catch (error) {
+                console.error("Error fetching state:", error);
+                showToast(`Error fetching simulation state: ${error.message}`, "error");
+            }
+        }
+
+        async function sendApiRequest(endpoint, method = 'POST', data = null) {
+            try {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: data ? JSON.stringify(data) : null
+                };
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+                if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+                const responseData = await response.json();
+                state.simulationState = responseData;
+                updateVisualizationFromState();
+                updateUIFromState();
+                return responseData;
+            } catch (error) {
+                console.error(`Error in API ${endpoint}:`, error);
+                showToast(`Error performing action: ${error.message}`, "error");
+                throw error;
+            }
+        }
+
+        function initVisualization() {
+            try {
+                // Initialize Three.js
+                state.threeObjects.scene = new THREE.Scene();
+                state.threeObjects.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                state.threeObjects.camera.position.z = 30;
+                state.threeObjects.renderer = new THREE.WebGLRenderer({
+                    canvas: document.getElementById('visualization'),
+                    antialias: true,
+                    alpha: true
+                });
+                state.threeObjects.renderer.setSize(window.innerWidth, window.innerHeight);
+                state.threeObjects.renderer.setClearColor(0x000000, 0);
+                state.threeObjects.renderer.setPixelRatio(window.devicePixelRatio);
+
+                // Initialize particle canvas
+                state.particleCanvas = document.getElementById('particle-layer');
+                state.particleContext = state.particleCanvas.getContext('2d');
+                state.particleCanvas.width = window.innerWidth;
+                state.particleCanvas.height = window.innerHeight;
+
+                // Cache UI elements
+                state.uiElements.sliders.size = document.getElementById('size-slider');
+                state.uiElements.sliders.density = document.getElementById('density-slider');
+                state.uiElements.sliders.connection = document.getElementById('connection-slider');
+                state.uiElements.sliders.rotation = document.getElementById('rotation-slider');
+                state.uiElements.values.size = document.getElementById('size-value');
+                state.uiElements.values.density = document.getElementById('density-value');
+                state.uiElements.values.connection = document.getElementById('connection-value');
+                state.uiElements.values.rotation = document.getElementById('rotation-value');
+                state.uiElements.buttons.reset = document.getElementById('reset-btn');
+                state.uiElements.buttons.addNodes = document.getElementById('add-nodes-btn');
+                state.uiElements.buttons.runStep = document.getElementById('run-step-btn');
+                state.uiElements.buttons.explosion = document.getElementById('explosion-btn');
+                state.uiElements.buttons.wireframe = document.getElementById('wireframe-btn');
+                state.uiElements.buttons.glow = document.getElementById('glow-btn');
+                state.uiElements.buttons.viewMolecule = document.getElementById('view-molecule-btn');
+                state.uiElements.buttons.fullscreen = document.getElementById('fullscreen-btn');
+                state.uiElements.stats.fps = document.getElementById('fps-value');
+                state.uiElements.stats.nodes = document.getElementById('nodes-value');
+                state.uiElements.stats.connections = document.getElementById('connections-value');
+                state.uiElements.stats.energy = document.getElementById('energy-value');
+                state.uiElements.stats.molecule = document.getElementById('molecule-stat-value');
+                state.uiElements.autoRunToggle = document.getElementById('auto-run-toggle');
+                state.uiElements.panelToggle = document.getElementById('panel-toggle');
+                state.uiElements.contextMenu = document.getElementById('context-menu');
+
+                // Simulate loading progress
+                const progressFill = document.getElementById('progress-fill');
+                const loadingText = document.getElementById('loading-text');
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 10;
+                    progressFill.style.width = `${progress}%`;
+                    if (progress >= 100) {
+                        clearInterval(progressInterval);
+                        document.getElementById('loading').classList.add('hidden');
+                    }
+                }, 200);
+
+                setupLighting();
+                createCubeWireframe(state.simulationState?.cube_size || 15);
+                setupEventHandlers();
+                initMoleculeViewer();
+                initTooltips();
+
+                fetchSimulationState().then(() => {
+                    animate();
+                    showToast("Visualization initialized", "success");
+                    state.uiElements.panelToggle.style.display = 'block';
+                });
+            } catch (error) {
+                console.error("Error initializing visualization:", error);
+                showToast("Error initializing visualization", "error");
+            }
+        }
+
+        function initMoleculeViewer() {
+            if (typeof $3Dmol === 'undefined') {
+                console.error("3Dmol.js not loaded");
+                showToast("3Dmol.js not available", "error");
+                return;
+            }
+            state.moleculeViewer = $3Dmol.createViewer('molecule-viewer', {
+                backgroundColor: '#1a1a3a'
+            });
+        }
+
+        function initTooltips() {
+            if (typeof tippy !== 'undefined') {
+                tippy('[data-tippy-content]', {
+                    theme: 'dark',
+                    placement: 'top'
+                });
+            }
+        }
+
+        function setupLighting() {
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            state.threeObjects.scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            directionalLight.position.set(5, 5, 5);
+            state.threeObjects.scene.add(directionalLight);
+            state.threeObjects.pointLight = new THREE.PointLight(0x4cc9f0, 1, 100);
+            state.threeObjects.pointLight.position.set(0, 0, 0);
+            state.threeObjects.scene.add(state.threeObjects.pointLight);
+        }
+
+        function createCubeWireframe(size) {
+            if (state.threeObjects.cubeWireframe) {
+                state.threeObjects.scene.remove(state.threeObjects.cubeWireframe);
+                state.threeObjects.cubeWireframe.geometry.dispose();
+                state.threeObjects.cubeWireframe.material.dispose();
+            }
+            const geometry = new THREE.BoxGeometry(size, size, size);
+            const wireframeGeometry = new THREE.EdgesGeometry(geometry);
+            const wireframeMaterial = new THREE.LineBasicMaterial({
+                color: 0x4cc9f0,
+                transparent: true,
+                opacity: 0.7
+            });
+            state.threeObjects.cubeWireframe = new THREE.LineSegments(wireframeGeometry, wireframeMaterial);
+            state.threeObjects.cubeWireframe.visible = state.cubeWireframeVisible;
+            state.threeObjects.scene.add(state.threeObjects.cubeWireframe);
+        }
+
+        function updateVisualizationFromState() {
+            if (!state.simulationState) return;
+            const { positions, energies, connections, num_particles, num_connections, predicted_molecule_molblock, cube_size } = state.simulationState;
+
+            // Update cube wireframe
+            if (cube_size && cube_size !== state.threeObjects.cubeWireframe?.geometry.parameters.width) {
+                createCubeWireframe(cube_size);
+            }
+
+            // Update nodes
+            const currentParticleCount = positions?.length || 0;
+            while (state.threeObjects.nodes.length > currentParticleCount) {
+                const node = state.threeObjects.nodes.pop();
+                state.threeObjects.scene.remove(node);
+                node.geometry.dispose();
+                node.material.dispose();
+            }
+            if (positions) {
+                for (let i = 0; i < currentParticleCount; i++) {
+                    const pos = positions[i];
+                    const energy = energies?.[i] || 0;
+                    if (state.threeObjects.nodes[i]) {
+                        state.threeObjects.nodes[i].position.set(pos[0], pos[1], pos[2]);
+                        const energyFactor = Math.min(1, energy / 100);
+                        const pulseFactor = 1 + Math.sin(state.clock.elapsedTime * 2 + i) * 0.2 * energyFactor;
+                        state.threeObjects.nodes[i].scale.setScalar(pulseFactor);
+                        state.threeObjects.nodes[i].material.color.setHex(state.nodeColor);
+                        state.threeObjects.nodes[i].material.emissive.setHex(state.nodeColor);
+                        state.threeObjects.nodes[i].material.emissiveIntensity = state.nodesGlowEnabled ? 0.5 : 0;
+                    } else {
+                        const geometry = new THREE.SphereGeometry(0.4, 16, 16);
+                        const material = new THREE.MeshPhysicalMaterial({
+                            color: state.nodeColor,
+                            metalness: 0.8,
+                            roughness: 0.2,
+                            emissive: state.nodeColor,
+                            emissiveIntensity: state.nodesGlowEnabled ? 0.5 : 0,
+                            transparent: true,
+                            opacity: 0.9
+                        });
+                        const node = new THREE.Mesh(geometry, material);
+                        node.position.set(pos[0], pos[1], pos[2]);
+                        node.userData.backendIndex = i;
+                        state.threeObjects.scene.add(node);
+                        state.threeObjects.nodes.push(node);
+                    }
+                }
+            }
+
+            // Update connections
+            while (state.threeObjects.connections.length > 0) {
+                const conn = state.threeObjects.connections.pop();
+                state.threeObjects.scene.remove(conn);
+                conn.geometry.dispose();
+                conn.material.dispose();
+            }
+            if (connections && positions) {
+                connections.forEach(conn => {
+                    const [i, j] = conn;
+                    if (state.threeObjects.nodes[i] && state.threeObjects.nodes[j]) {
+                        const points = [
+                            state.threeObjects.nodes[i].position.clone(),
+                            state.threeObjects.nodes[j].position.clone()
+                        ];
+                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        const material = new THREE.LineBasicMaterial({
+                            color: 0x4cc9f0,
+                            transparent: true,
+                            opacity: 0.5
+                        });
+                        const connection = new THREE.Line(geometry, material);
+                        state.threeObjects.scene.add(connection);
+                        state.threeObjects.connections.push(connection);
+                    }
+                });
+            }
+
+            // Update molecule viewer
+            const moleculeStat = state.uiElements.stats.molecule;
+            if (predicted_molecule_molblock && state.moleculeViewer) {
+                moleculeStat.textContent = 'Available';
+                try {
+                    state.moleculeViewer.clear();
+                    state.moleculeViewer.addModel(predicted_molecule_molblock, 'mol');
+                    state.moleculeViewer.setStyle({}, { stick: {}, sphere: { radius: 0.4 } });
+                    state.moleculeViewer.zoomTo();
+                    state.moleculeViewer.render();
+                } catch (error) {
+                    console.error("Error rendering molecule:", error);
+                    moleculeStat.textContent = 'Error';
+                    showToast("Error rendering molecule", "error");
+                }
+            } else {
+                moleculeStat.textContent = 'None';
+                if (state.moleculeViewer) {
+                    state.moleculeViewer.clear();
+                    state.moleculeViewer.render();
+                }
+            }
+
+            // Update point light
+            if (state.threeObjects.pointLight && energies) {
+                const overallEnergy = energies.reduce((sum, e) => sum + e, 0);
+                state.threeObjects.pointLight.intensity = Math.max(0.5, Math.min(2.0, overallEnergy / num_particles / 50));
+            }
+        }
+
+        function updateUIFromState() {
+            if (!state.simulationState) return;
+            const { num_particles, num_connections, energies, cube_size, connection_threshold } = state.simulationState;
+            state.uiElements.stats.nodes.textContent = num_particles ?? 'N/A';
+            state.uiElements.stats.connections.textContent = num_connections ?? 'N/A';
+            if (energies?.length > 0) {
+                const avgEnergy = energies.reduce((sum, e) => sum + e, 0) / energies.length;
+                state.uiElements.stats.energy.textContent = `${Math.min(100, Math.round(avgEnergy * 10))}%`;
+            } else {
+                state.uiElements.stats.energy.textContent = 'N/A';
+            }
+            if (cube_size) {
+                state.uiElements.sliders.size.value = cube_size;
+                state.uiElements.values.size.textContent = cube_size;
+            }
+            if (connection_threshold) {
+                state.uiElements.sliders.connection.value = connection_threshold;
+                state.uiElements.values.connection.textContent = connection_threshold;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            try {
+                const deltaTime = state.clock.getDelta();
+                updateFps();
+                if (state.threeObjects.cubeWireframe && state.rotationSpeed > 0 && !state.isDragging) {
+                    const rotationAmountY = state.rotationSpeed * 0.001;
+                    const rotationAmountX = state.rotationSpeed * 0.0005;
+                    state.threeObjects.cubeWireframe.rotation.y += rotationAmountY;
+                    state.threeObjects.cubeWireframe.rotation.x += rotationAmountX;
+                    const rotationMatrix = new THREE.Matrix4().makeRotationFromEuler(
+                        new THREE.Euler(rotationAmountX, rotationAmountY, 0, 'XYZ')
+                    );
+                    state.threeObjects.nodes.forEach(node => {
+                        node.position.applyMatrix4(rotationMatrix);
+                    });
+                    state.threeObjects.connections.forEach(conn => {
+                        const positions = conn.geometry.attributes.position.array;
+                        const [node1, node2] = conn.userData.nodes || [];
+                        if (node1 && node2) {
+                            positions[0] = node1.position.x;
+                            positions[1] = node1.position.y;
+                            positions[2] = node1.position.z;
+                            positions[3] = node2.position.x;
+                            positions[4] = node2.position.y;
+                            positions[5] = node2.position.z;
+                            conn.geometry.attributes.position.needsUpdate = true;
+                        }
+                    });
+                }
+                drawParticles();
+                state.threeObjects.renderer.render(state.threeObjects.scene, state.threeObjects.camera);
+                if (state.autoRunSimulation && !state.isDragging && !state.showContextMenu) {
+                    if (state.clock.elapsedTime % 0.5 < deltaTime) {
+                        sendApiRequest('/run_step', 'POST');
+                    }
+                }
+            } catch (error) {
+                console.error("Animation error:", error);
+                showToast("Animation error", "error");
+            }
+        }
+
+        function updateFps() {
+            const now = performance.now();
+            while (state.fpsSamples.length > 0 && state.fpsSamples[0] <= now - 1000) {
+                state.fpsSamples.shift();
+            }
+            state.fpsSamples.push(now);
+            state.uiElements.stats.fps.textContent = state.fpsSamples.length;
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.borderLeftColor = type === 'error' ? '#ef476f' : type === 'warning' ? '#ffd166' : '#4cc9f0';
+            toast.classList.add('visible');
+            if (state.toastTimeout) clearTimeout(state.toastTimeout);
+            state.toastTimeout = setTimeout(() => {
+                toast.classList.remove('visible');
+            }, 3000);
+        }
+
+        function hexToInt(hex) {
+            return parseInt(hex.replace('#', '0x'));
+        }
+
+        function drawParticles() {
+            if (!state.particleContext) return;
+            state.particleContext.clearRect(0, 0, state.particleCanvas.width, state.particleCanvas.height);
+            state.particles = state.particles.filter(p => p.lifetime > 0);
+            state.particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.lifetime -= 0.02;
+                p.radius = Math.max(1, p.radius - 0.05);
+                state.particleContext.beginPath();
+                state.particleContext.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                state.particleContext.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${p.lifetime})`;
+                state.particleContext.fill();
+            });
+            if (Math.random() < 0.1 && state.threeObjects.nodes.length > 0) {
+                const node = state.threeObjects.nodes[Math.floor(Math.random() * state.threeObjects.nodes.length)];
+                const screenPos = node.position.clone().project(state.threeObjects.camera);
+                const x = (screenPos.x + 1) * window.innerWidth / 2;
+                const y = (-screenPos.y + 1) * window.innerHeight / 2;
+                state.particles.push({
+                    x,
+                    y,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: (Math.random() - 0.5) * 2,
+                    radius: 3,
+                    lifetime: 1,
+                    color: { r: 76, g: 201, b: 240 }
+                });
+            }
+        }
+
+        function getWorldPositionFromMouse(event) {
+            state.threeObjects.raycaster.setFromCamera(state.mousePosition, state.threeObjects.camera);
+            const intersects = state.threeObjects.raycaster.intersectObject(state.threeObjects.cubeWireframe);
+            return intersects.length > 0 ? intersects[0].point.toArray() : [0, 0, 0];
+        }
+
+        function showContextMenu(event) {
+            state.showContextMenu = true;
+            state.contextMenuPosition = { x: event.clientX, y: event.clientY };
+            const contextMenu = state.uiElements.contextMenu;
+            contextMenu.style.display = 'block';
+            contextMenu.style.left = `${event.clientX}px`;
+            contextMenu.style.top = `${event.clientY}px`;
+        }
+
+        function hideContextMenu() {
+            state.showContextMenu = false;
+            state.uiElements.contextMenu.style.display = 'none';
+        }
+
+        function setupEventHandlers() {
+            // Window resize
+            window.addEventListener('resize', () => {
+                state.threeObjects.renderer.setSize(window.innerWidth, window.innerHeight);
+                state.particleCanvas.width = window.innerWidth;
+                state.particleCanvas.height = window.innerHeight;
+                state.threeObjects.camera.aspect = window.innerWidth / window.innerHeight;
+                state.threeObjects.camera.updateProjectionMatrix();
+            });
+
+            // Mouse events
+            document.addEventListener('mousemove', (event) => {
+                state.mousePosition.x = (event.clientX / window.innerWidth) * 2 - 1;
+                state.mousePosition.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                if (state.isDragging) {
+                    const deltaMove = {
+                        x: event.clientX - state.previousMousePosition.x,
+                        y: event.clientY - state.previousMousePosition.y
+                    };
+                    if (state.threeObjects.cubeWireframe) {
+                        state.threeObjects.cubeWireframe.rotation.y += deltaMove.x * 0.01;
+                        state.threeObjects.cubeWireframe.rotation.x += deltaMove.y * 0.01;
+                        const rotationMatrix = new THREE.Matrix4().makeRotationFromEuler(
+                            new THREE.Euler(deltaMove.y * 0.01, deltaMove.x * 0.01, 0, 'XYZ')
+                        );
+                        state.threeObjects.nodes.forEach(node => {
+                            node.position.applyMatrix4(rotationMatrix);
+                        });
+                        state.threeObjects.connections.forEach(conn => {
+                            const positions = conn.geometry.attributes.position.array;
+                            const [node1, node2] = conn.userData.nodes || [];
+                            if (node1 && node2) {
+                                positions[0] = node1.position.x;
+                                positions[1] = node1.position.y;
+                                positions[2] = node1.position.z;
+                                positions[3] = node2.position.x;
+                                positions[4] = node2.position.y;
+                                positions[5] = node2.position.z;
+                                conn.geometry.attributes.position.needsUpdate = true;
+                            }
+                        });
+                    }
+                }
+                state.previousMousePosition = { x: event.clientX, y: event.clientY };
+            });
+
+            document.addEventListener('mousedown', (event) => {
+                if (event.button === 2) return;
+                state.isDragging = true;
+                state.previousMousePosition = { x: event.clientX, y: event.clientY };
+                const now = Date.now();
+                const timeBetweenClicks = now - (state.lastClickTime || 0);
+                state.lastClickTime = now;
+                if (timeBetweenClicks < 300) {
+                    const position = getWorldPositionFromMouse(event);
+                    sendApiRequest('/add_particles', 'POST', { count: 1 });
+                    showToast("Adding node...");
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                state.isDragging = false;
+            });
+
+            document.addEventListener('wheel', (event) => {
+                state.threeObjects.camera.position.z += event.deltaY * 0.01;
+                state.threeObjects.camera.position.z = Math.max(5, Math.min(50, state.threeObjects.camera.position.z));
+            });
+
+            document.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                showContextMenu(event);
+            });
+
+            document.addEventListener('click', (event) => {
+                if (state.showContextMenu && !state.uiElements.contextMenu.contains(event.target)) {
+                    hideContextMenu();
+                }
+            });
+
+            // UI controls
+            state.uiElements.panelToggle.addEventListener('click', () => {
+                state.controlPanelVisible = !state.controlPanelVisible;
+                const controlPanel = document.getElementById('control-panel');
+                controlPanel.classList.toggle('visible', state.controlPanelVisible);
+                state.uiElements.panelToggle.style.display = state.controlPanelVisible ? 'none' : 'block';
+            });
+
+            state.uiElements.sliders.size.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                state.uiElements.values.size.textContent = value;
+                sendApiRequest('/reset_simulation', 'POST', { cube_size: value });
+            });
+
+            state.uiElements.sliders.density.addEventListener('input', (e) => {
+                const value = Math.round(parseFloat(e.target.value) ** 2);
+                state.uiElements.values.density.textContent = value;
+                sendApiRequest('/reset_simulation', 'POST', { num_particles: value });
+            });
+
+            state.uiElements.sliders.connection.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                state.uiElements.values.connection.textContent = value;
+                sendApiRequest('/set_parameters', 'POST', { connection_threshold: value });
+            });
+
+            state.uiElements.sliders.rotation.addEventListener('input', (e) => {
+                state.rotationSpeed = parseFloat(e.target.value);
+                state.uiElements.values.rotation.textContent = state.rotationSpeed;
+            });
+
+            state.uiElements.autoRunToggle.addEventListener('change', (e) => {
+                state.autoRunSimulation = e.target.checked;
+                showToast(`Auto-run ${state.autoRunSimulation ? 'enabled' : 'disabled'}`);
+            });
+
+            state.uiElements.buttons.reset.addEventListener('click', () => {
+                sendApiRequest('/reset_simulation', 'POST', {
+                    num_particles: Math.round(parseFloat(state.uiElements.sliders.density.value) ** 2),
+                    cube_size: parseFloat(state.uiElements.sliders.size.value),
+                    connection_threshold: parseFloat(state.uiElements.sliders.connection.value)
+                });
+                showToast("Simulation reset");
+            });
+
+            state.uiElements.buttons.addNodes.addEventListener('click', () => {
+                sendApiRequest('/add_particles', 'POST', { count: 10 });
+                showToast("Adding 10 nodes...");
+            });
+
+            state.uiElements.buttons.runStep.addEventListener('click', () => {
+                sendApiRequest('/run_step', 'POST');
+                showToast("Running simulation step");
+            });
+
+            state.uiElements.buttons.explosion.addEventListener('click', () => {
+                sendApiRequest('/apply_explosion', 'POST', {
+                    position: [0, 0, 0],
+                    strength: 10
+                });
+                showToast("Triggering quantum burst");
+            });
+
+            state.uiElements.buttons.wireframe.addEventListener('click', () => {
+                state.cubeWireframeVisible = !state.cubeWireframeVisible;
+                state.threeObjects.cubeWireframe.visible = state.cubeWireframeVisible;
+                state.uiElements.buttons.wireframe.classList.toggle('active', state.cubeWireframeVisible);
+                showToast(`Wireframe ${state.cubeWireframeVisible ? 'shown' : 'hidden'}`);
+            });
+
+            state.uiElements.buttons.glow.addEventListener('click', () => {
+                state.nodesGlowEnabled = !state.nodesGlowEnabled;
+                state.threeObjects.nodes.forEach(node => {
+                    node.material.emissiveIntensity = state.nodesGlowEnabled ? 0.5 : 0;
+                });
+                state.uiElements.buttons.glow.classList.toggle('active', state.nodesGlowEnabled);
+                showToast(`Glow ${state.nodesGlowEnabled ? 'enabled' : 'disabled'}`);
+            });
+
+            state.uiElements.buttons.viewMolecule.addEventListener('click', () => {
+                if (state.simulationState?.predicted_molecule_molblock) {
+                    document.getElementById('modal').classList.add('visible');
+                    showToast("Displaying molecule");
+                } else {
+                    showToast("No molecule available", "warning");
+                }
+            });
+
+            state.uiElements.buttons.fullscreen.addEventListener('click', () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        showToast(`Fullscreen error: ${err.message}`, "error");
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            });
+
+            // Color selection
+            document.querySelectorAll('.colorbox').forEach(box => {
+                box.addEventListener('click', () => {
+                    document.querySelectorAll('.colorbox').forEach(b => b.classList.remove('active'));
+                    box.classList.add('active');
+                    state.nodeColor = hexToInt(box.dataset.color);
+                    state.threeObjects.nodes.forEach(node => {
+                        node.material.color.setHex(state.nodeColor);
+                        node.material.emissive.setHex(state.nodeColor);
+                    });
+                    showToast("Node color updated");
+                });
+            });
+
+            // Context menu actions
+            document.getElementById('ctx-add-node').addEventListener('click', () => {
+                const position = getWorldPositionFromMouse({ clientX: state.contextMenuPosition.x, clientY: state.contextMenuPosition.y });
+                sendApiRequest('/add_particles', 'POST', { count: 1 });
+                showToast("Adding node at position");
+                hideContextMenu();
+            });
+
+            document.getElementById('ctx-clear-area').addEventListener('click', () => {
+                const position = getWorldPositionFromMouse({ clientX: state.contextMenuPosition.x, clientY: state.contextMenuPosition.y });
+                sendApiRequest('/remove_particles_in_radius', 'POST', {
+                    center_position: position,
+                    radius: 5
+                });
+                showToast("Clearing nearby nodes");
+                hideContextMenu();
+            });
+
+            document.getElementById('ctx-explode-from-here').addEventListener('click', () => {
+                const position = getWorldPositionFromMouse({ clientX: state.contextMenuPosition.x, clientY: state.contextMenuPosition.y });
+                sendApiRequest('/apply_explosion', 'POST', {
+                    position,
+                    strength: 10
+                });
+                showToast("Triggering burst at position");
+                hideContextMenu();
+            });
+
+            document.getElementById('ctx-view-molecule').addEventListener('click', () => {
+                if (state.simulationState?.predicted_molecule_molblock) {
+                    document.getElementById('modal').classList.add('visible');
+                    showToast("Displaying molecule");
+                } else {
+                    showToast("No molecule available", "warning");
+                }
+                hideContextMenu();
+            });
+
+            // Modal controls
+            document.getElementById('modal-cancel').addEventListener('click', () => {
+                document.getElementById('modal').classList.remove('visible');
+            });
+
+            document.querySelector('.modal-close').addEventListener('click', () => {
+                document.getElementById('modal').classList.remove('visible');
+            });
+        }
+
+        // Initialize on load
+        window.addEventListener('load', initVisualization);
+    })();
+    </script>
 </body>
 </html>
