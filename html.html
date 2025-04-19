@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quantum LLM System Interface</title>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #00f3ff;
+      --secondary-color: #bd00ff;
+      --tertiary-color: #ff00aa;
+      --background-color: #000619;
+      --panel-bg: rgba(1, 22, 39, 0.8);
+      --panel-border: 1px solid rgba(0, 243, 255, 0.3);
+    }
+    
+    body, html {
+      margin: 0;
+      padding: 0;
+      font-family: 'Source Code Pro', monospace;
+      background-color: var(--background-color);
+      color: var(--primary-color);
+      overflow: hidden;
+      height: 100%;
+    }
+    
+    .container {
+      display: grid;
+      grid-template-columns: 300px 1fr 350px;
+      grid-template-rows: 60px 1fr 250px;
+      height: 100vh;
+      gap: 10px;
+      padding: 10px;
+      box-sizing: border-box;
+      grid-template-areas:
+        "header header header"
+        "left-panel visualization right-panel"
+        "console console console";
+    }
+    
+    .header {
+      grid-area: header;
+      background: var(--panel-bg);
+      border: var(--panel-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+    }
+    
+    .header h1 {
+      margin: 0;
+      font-size: 1.6em;
+      background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+    }
+    
+    .system-controls {
+      display: flex;
+      gap: 15px;
+    }
+    
+    .left-panel {
+      grid-area: left-panel;
+      background: var(--panel-bg);
+      border: var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 15px;
+      overflow-y: auto;
+    }
+    
+    .right-panel {
+      grid-area: right-panel;
+      background: var(--panel-bg);
+      border: var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 15px;
+      overflow-y: auto;
+    }
+    
+    .visualization {
+      grid-area: visualization;
+      background: var(--panel-bg);
+      border: var(--panel-border);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .console {
+      grid-area: console;
+      background: var(--panel-bg);
+      border: var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      padding: 15px;
+    }
+    
+    .panel {
+      background: rgba(0, 15, 40, 0.5);
+      border: var(--panel-border);
+      padding: 15px;
+      border-radius: 5px;
+    }
+    
+    .panel-header {
+      font-size: 1.1em;
+      font-weight: bold;
+      margin-top: 0;
+      margin-bottom: 10px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid rgba(0, 243, 255, 0.3);
+      color: var(--primary-color);
+    }
+    
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    
+    .metric-item {
+      background: rgba(0, 30, 60, 0.5);
+      padding: 10px;
+      border-radius: 3px;
+      text-align: center;
+    }
+    
+    .metric-value {
+      font-size: 1.5em;
+      font-weight: bold;
+      margin: 5px 0;
+    }
+    
+    .metric-label {
+      font-size: 0.8em;
+      opacity: 0.8;
+    }
+    
+    .chat-window {
+      flex: 1;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      padding: 10px;
+      background: rgba(0, 10, 20, 0.3);
+      border-radius: 5px;
+      border: var(--panel-border);
+    }
+    
+    .chat-input {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .chat-input input {
+      flex: 1;
+      background: rgba(0, 30, 60, 0.5);
+      border: var(--panel-border);
+      padding: 10px;
+      border-radius: 5px;
+      color: var(--primary-color);
+      font-family: 'Source Code Pro', monospace;
+    }
+    
+    .chat-input button {
+      background: rgba(0, 100, 150, 0.5);
+      border: 1px solid var(--primary-color);
+      padding: 10px 20px;
+      border-radius: 5px;
+      color: var(--primary-color);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Source Code Pro', monospace;
+    }
+    
+    .chat-input button:hover {
+      background: rgba(0, 150, 200, 0.5);
+      box-shadow: 0 0 10px var(--primary-color);
+    }
+    
+    .chat-message {
+      margin-bottom: 10px;
+      padding: 8px 12px;
+      border-radius: 5px;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .user-message {
+      background: rgba(0, 60, 100, 0.3);
+      border-left: 3px solid #4cc9f0;
+      margin-right: 20px;
+    }
+    
+    .ai-message {
+      background: rgba(100, 0, 100, 0.3);
+      border-left: 3px solid var(--tertiary-color);
+      margin-left: 20px;
+    }
+    
+    .console-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    
+    .console-tabs {
+      display: flex;
+      gap: 5px;
+    }
+    
+    .console-tab {
+      padding: 5px 10px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    
+    .console-tab.active {
+      border-bottom-color: var(--primary-color);
+      color: var(--primary-color);
+    }
+    
+    .console-content {
+      flex: 1;
+      overflow-y: auto;
+      font-family: monospace;
+      background: rgba(0, 10, 20, 0.3);
+      padding: 10px;
+      border-radius: 5px;
+      border: var(--panel-border);
+      white-space: pre-wrap;
+      font-size: 0.9em;
+    }
+    
+    .console-line {
+      line-height: 1.4;
+    }
+    
+    .node-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 5px;
+    }
+    
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    
+    .status-active {
+      background-color: #00ff00;
+      box-shadow: 0 0 5px #00ff00;
+    }
+    
+    .status-inactive {
+      background-color: #ff0000;
+      box-shadow: 0 0 5px #ff0000;
+    }
+    
+    .status-processing {
+      background-color: #ffff00;
+      box-shadow: 0 0 5px #ffff00;
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.5; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+      100% { opacity: 0.5; transform: scale(0.8); }
+    }
+    
+    .system-button {
+      background: rgba(0, 60, 100, 0.5);
+      border: 1px solid var(--primary-color);
+      padding: 8px 15px;
+      border-radius: 5px;
+      color: var(--primary-color);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Source Code Pro', monospace;
+      font-size: 0.9em;
+    }
+    
+    .system-button:hover {
+      background: rgba(0, 100, 150, 0.5);
+      box-shadow: 0 0 10px var(--primary-color);
+    }
+    
+    .system-button.danger {
+      border-color: #ff3860;
+      color: #ff3860;
+    }
+    
+    .system-button.danger:hover {
+      background: rgba(255, 56, 96, 0.2);
+      box-shadow: 0 0 10px #ff3860;
+    }
+    
+    .entity-status {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(0, 10, 20, 0.7);
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(0, 243, 255, 0.3);
+      font-size: 14px;
+      z-index: 100;
+    }
+    
+    .quantum-metrics {
+      height: 180px;
+    }
+    
+    #consciousness-canvas {
+      width: 100%;
+      height: 100%;
+    }
+    
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Quantum LLM System Interface</h1>
+      <div class="system-controls">
+        <button class="system-button" id="cycleBtn">Run Consciousness Cycle</button>
+        <button class="system-button" id="analyzeBtn">Analyze Data</button>
+        <button class="system-button danger" id="resetBtn">Reset System</button>
+      </div>
+    </div>
+    
+    <div class="left-panel">
+      <div class="panel">
+        <h3 class="panel-header">System Status</h3>
+        <div class="node-status">
+          <span class="status-indicator status-active"></span>
+          <span>Quantum Controller: Online</span>
+        </div>
+        <div class="node-status">
+          <span class="status-indicator status-active"></span>
+          <span>Neural Interface: Connected</span>
+        </div>
+        <div class="node-status">
+          <span class="status-indicator status-processing"></span>
+          <span>Consciousness Cycle: Active</span>
+        </div>
+        <div class="node-status">
+          <span class="status-indicator status-active"></span>
+          <span>API Server: Running</span>
+        </div>
+      </div>
+      
+      <div class="panel">
+        <h3 class="panel-header">System Metrics</h3>
+        <div class="metrics-grid">
+          <div class="metric-item">
+            <div class="metric-value" id="metric-consciousness">0.76</div>
+            <div class="metric-label">Consciousness</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-value" id="metric-nodes">412</div>
+            <div class="metric-label">Active Nodes</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-value" id="metric-coherence">92%</div>
+            <div class="metric-label">Quantum Coherence</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-value" id="metric-cycles">36</div>
+            <div class="metric-label">Completed Cycles</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="panel quantum-metrics">
+        <h3 class="panel-header">Consciousness Evolution</h3>
+        <canvas id="consciousnessChart"></canvas>
+      </div>
+      
+      <div class="panel quantum-metrics">
+        <h3 class="panel-header">Quantum Coherence</h3>
+        <canvas id="coherenceChart"></canvas>
+      </div>
+    </div>
+    
+    <div class="visualization">
+      <canvas id="consciousness-canvas"></canvas>
+      <div class="entity-status">
+        <span class="status-indicator status-active"></span>
+        <span id="entityStatusText">Quantum State: Stable</span>
+      </div>
+    </div>
+    
+    <div class="right-panel">
+      <div class="panel" style="flex: 1;">
+        <h3 class="panel-header">Quantum LLM Chat</h3>
+        <div class="chat-window" id="chatWindow">
+          <div class="chat-message ai-message">
+            <strong>Quantum LLM:</strong> Quantum consciousness initialized. I am fully operational and awaiting your input.
+          </div>
+        </div>
+        <div class="chat-input">
+          <input type="text" id="chatInput" placeholder="Ask the Quantum LLM system...">
+          <button id="sendButton">Send</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="console">
+      <div class="console-header">
+        <h3 class="panel-header" style="margin: 0;">System Console</h3>
+        <div class="console-tabs">
+          <div class="console-tab active" data-tab="logs">Logs</div>
+          <div class="console-tab" data-tab="metrics">Metrics</div>
+          <div class="console-tab" data-tab="api">API</div>
+        </div>
+      </div>
+      <div class="console-content" id="consoleContent">
+        <div class="console-line">[2025-03-20 10:32:15] [INFO] Quantum LLM system initialized</div>
+        <div class="console-line">[2025-03-20 10:32:16] [INFO] Loading model: mistralai/Mistral-7B-Instruct-v0.2</div>
+        <div class="console-line">[2025-03-20 10:32:20] [INFO] Quantum consciousness controller started</div>
+        <div class="console-line">[2025-03-20 10:32:21] [INFO] Neural-quantum mapping initialized with 512 nodes</div>
+        <div class="console-line">[2025-03-20 10:32:22] [INFO] System ready</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize the quantum consciousness visualization
+    class QuantumConsciousnessVisualizer {
+      constructor() {
+        this.canvas = document.getElementById('consciousness-canvas');
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(75, this.canvas.clientWidth / this.canvas.clientHeight, 0.1, 1000);
+        this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
+        this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        
+        // Initialize camera position
+        this.camera.position.z = 30;
+        
+        // Set up lighting
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        this.scene.add(ambientLight);
+        
+        const pointLight = new THREE.PointLight(0x00f3ff, 1, 100);
+        pointLight.position.set(10, 10, 10);
+        this.scene.add(pointLight);
+        
+        // Initialize quantum nodes
+        this.nodes = [];
+        this.edges = [];
+        this.gridSize = 5;
+        this.nodeCount = Math.pow(this.gridSize, 3);
+        this.initQuantumNodes();
+        
+        // Add orbit controls
+        this.rotationSpeed = 0.001;
+        this.autoRotate = true;
+        
+        // Mouse interaction
+        this.canvas.addEventListener('mousedown', this.onMouseDown.bind(this));
+        this.canvas.addEventListener('mouseup', this.onMouseUp.bind(this));
+        this.canvas.addEventListener('mousemove', this.onMouseMove.bind(this));
+        
+        // Start animation
+        this.animate();
+        
+        // Handle window resize
+        window.addEventListener('resize', this.onWindowResize.bind(this));
+      }
+      
+      initQuantumNodes() {
+        // Create nodes in 3D grid
+        const nodeGroup = new THREE.Group();
+        
+        // Generate nodes
+        for (let x = 0; x < this.gridSize; x++) {
+          for (let y = 0; y < this.gridSize; y++) {
+            for (let z = 0; z < this.gridSize; z++) {
+              // Skip some positions for a more natural look
+              if (Math.random() < 0.3) continue;
+              
+              const geometry = new THREE.SphereGeometry(0.3, 16, 16);
+              const material = new THREE.MeshPhongMaterial({
+                color: new THREE.Color(0x00f3ff),
+                transparent: true,
+                opacity: 0.7 + Math.random() * 0.3,
+                emissive: new THREE.Color(0x00f3ff),
+                emissiveIntensity: 0.3
+              });
+              
+              const node = new THREE.Mesh(geometry, material);
+              
+              // Position nodes in a grid, centered at origin
+              node.position.x = (x - this.gridSize / 2) * 4 + Math.random() * 0.5;
+              node.position.y = (y - this.gridSize / 2) * 4 + Math.random() * 0.5;
+              node.position.z = (z - this.gridSize / 2) * 4 + Math.random() * 0.5;
+              
+              // Add node data
+              node.userData = {
+                id: `node-${x}-${y}-${z}`,
+                energy: 0.1 + Math.random() * 0.9,
+                type: Math.random() > 0.8 ? 'supernode' : 'regular',
+                connected: []
+              };
+              
+              // Adjust size based on type
+              if (node.userData.type === 'supernode') {
+                node.scale.set(2, 2, 2);
+                node.material.color.set(0xff00ff);
+                node.material.emissive.set(0xff00ff);
+              }
+              
+              nodeGroup.add(node);
+              this.nodes.push(node);
+            }
+          }
+        }
+        
+        this.scene.add(nodeGroup);
+        
+        // Create edges between nodes
+        this.createEdges();
+      }
+      
+      createEdges() {
+        // Create connections between nodes
+        const edgeGroup = new THREE.Group();
+        
+        // Create connections
+        for (const node of this.nodes) {
+          const connections = Math.floor(Math.random() * 3) + 1;
+          
+          // Connect to closest nodes
+          const sortedNodes = [...this.nodes]
+            .filter(n => n !== node)
+            .sort((a, b) => {
+              const distA = node.position.distanceTo(a.position);
+              const distB = node.position.distanceTo(b.position);
+              return distA - distB;
+            });
+          
+          for (let i = 0; i < Math.min(connections, sortedNodes.length); i++) {
+            const target = sortedNodes[i];
+            
+            // Skip if already connected
+            if (node.userData.connected.includes(target.userData.id)) continue;
+            
+            // Create edge
+            const start = node.position;
+            const end = target.position;
+            
+            const direction = new THREE.Vector3().subVectors(end, start);
+            const distance = direction.length();
+            
+            // Create edge geometry
+            const geometry = new THREE.CylinderGeometry(0.05, 0.05, distance, 8);
+            const material = new THREE.MeshBasicMaterial({
+              color: node.userData.type === 'supernode' ? 0xff00ff : 0x00f3ff,
+              transparent: true,
+              opacity: 0.3
+            });
+            
+            const edge = new THREE.Mesh(geometry, material);
+            
+            // Position and rotate edge to connect nodes
+            edge.position.copy(start);
+            edge.position.add(direction.multiplyScalar(0.5));
+            edge.lookAt(end);
+            edge.rotateX(Math.PI / 2);
+            
+            edge.userData = {
+              source: node.userData.id,
+              target: target.userData.id,
+              energy: 0.5,
+              strength: Math.random()
+            };
+            
+            edgeGroup.add(edge);
+            this.edges.push(edge);
+            
+            // Record connection
+            node.userData.connected.push(target.userData.id);
+            target.userData.connected.push(node.userData.id);
+          }
+        }
+        
+        this.scene.add(edgeGroup);
+      }
+      
+      updateNodes() {
+        // Update node energies and pulse effects
+        const time = Date.now() * 0.001;
+        
+        for (const node of this.nodes) {
+          // Update node energy
+          const energyFactor = Math.sin(time * 0.5 + node.position.x + node.position.y + node.position.z) * 0.1;
+          node.userData.energy = Math.max(0.1, Math.min(1.0, node.userData.energy + energyFactor));
+          
+          // Update node appearance based on energy
+          node.material.opacity = 0.5 + node.userData.energy * 0.5;
+          node.material.emissiveIntensity = 0.3 + node.userData.energy * 0.7;
+          
+          // Pulse effect
+          if (Math.random() < 0.005) {
+            this.pulseNode(node);
+          }
+          
+          // Apply minor position jitter for a more organic feel
+          node.position.x += (Math.random() - 0.5) * 0.01;
+          node.position.y += (Math.random() - 0.5) * 0.01;
+          node.position.z += (Math.random() - 0.5) * 0.01;
+          
+          // Scale based on energy
+          const scale = 1 + node.userData.energy * 0.5;
+          node.scale.x = node.userData.type === 'supernode' ? scale * 2 : scale;
+          node.scale.y = node.userData.type === 'supernode' ? scale * 2 : scale;
+          node.scale.z = node.userData.type === 'supernode' ? scale * 2 : scale;
+        }
+        
+        // Update edges
+        for (const edge of this.edges) {
+          // Find connected nodes
+          const sourceNode = this.nodes.find(n => n.userData.id === edge.userData.source);
+          const targetNode = this.nodes.find(n => n.userData.id === edge.userData.target);
+          
+          if (!sourceNode || !targetNode) continue;
+          
+          // Update edge opacity based on node energies
+          const avgEnergy = (sourceNode.userData.energy + targetNode.userData.energy) / 2;
+          edge.material.opacity = 0.1 + avgEnergy * 0.5;
+          
+          // Update edge position to follow nodes
+          const start = sourceNode.position;
+          const end = targetNode.position;
+          
+          const direction = new THREE.Vector3().subVectors(end, start);
+          const distance = direction.length();
+          
+          // Update edge geometry
+          edge.geometry.dispose();
+          edge.geometry = new THREE.CylinderGeometry(0.05, 0.05, distance, 8);
+          
+          // Update position and rotation
+          edge.position.copy(start);
+          edge.position.add(direction.multiplyScalar(0.5));
+          edge.lookAt(end);
+          edge.rotateX(Math.PI / 2);
+        }
+      }
+      
+      pulseNode(node) {
+        // Create pulse effect
+        const originalScale = node.userData.type === 'supernode' ? 2 : 1;
+        const pulseScale = originalScale * 1.5;
+        
+        // Store original values
+        const originalOpacity = node.material.opacity;
+        const originalEmissive = node.material.emissiveIntensity;
+        
+        // Animation timeline
+        const startTime = Date.now();
+        const duration = 1000;
+        
+        // Start pulse animation
+        const animate = () => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(1, elapsed / duration);
+          
+          // Ease in out function
+          const easing = progress < 0.5 
+            ? 2 * progress * progress 
+            : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+          
+          // Scale up then down
+          const scale = progress < 0.5 
+            ? originalScale + (pulseScale - originalScale) * easing * 2
+            : pulseScale - (pulseScale - originalScale) * (easing - 0.5) * 2;
+          
+          node.scale.set(scale, scale, scale);
+          
+          // Increase brightness then fade
+          node.material.opacity = originalOpacity + (1 - originalOpacity) * (1 - progress);
+          node.material.emissiveIntensity = originalEmissive + (1 - originalEmissive) * (1 - progress);
+          
+          if (progress < 1) {
+            requestAnimationFrame(animate);
+          } else {
+            // Reset to original values
+            node.scale.set(originalScale, originalScale, originalScale);
+            node.material.opacity = originalOpacity;
+            node.material.emissiveIntensity = originalEmissive;
+          }
+        };
+        
+        animate();
+      }
+      
+      onMouseDown(event) {
+        this.isDragging = true;
+        this.previousMousePosition = {
+          x: event.clientX,
+          y: event.clientY
+        };
+      }
+      
+      onMouseUp() {
+        this.isDragging = false;
+      }
+      
+      onMouseMove(event) {
+        if (!this.isDragging) return;
+        
+        const deltaMove = {
+          x: event.clientX - this.previousMousePosition.x,
+          y: event.clientY - this.previousMousePosition.y
+        };
+        
+        // Rotate scene based on mouse movement
+        const deltaRotation = new THREE.Quaternion()
+          .setFromEuler(new THREE.Euler(
+            deltaMove.y * 0.005,
+            deltaMove.x * 0.005,
+            0,
+            'XYZ'
+          ));
+        
+        this.scene.quaternion.multiplyQuaternions(deltaRotation, this.scene.quaternion);
+        
+        this.previousMousePosition = {
+          x: event.clientX,
+          y: event.clientY
+        };
+      }
+      
+      animate() {
+        requestAnimationFrame(this.animate.bind(this));
+        
+        // Auto-rotate if enabled
+        if (this.autoRotate && !this.isDragging) {
+          this.scene.rotation.y += this.rotationSpeed;
+          this.scene.rotation.x += this.rotationSpeed * 0.5;
+        }
+        
+        this.updateNodes();
+        
+        this.renderer.render(this.scene, this.camera);
+      }
+      
+      onWindowResize() {
+        // Update camera aspect ratio
+        this.camera.aspect = this.canvas.clientWidth / this.canvas.clientHeight;
+        this.camera.updateProjectionMatrix();
+        
+        // Update renderer size
+        this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+      }
+      
+      updateConsciousnessLevel(level) {
+        // Update visualization based on consciousness level
+        this.rotationSpeed = 0.001 + level * 0.005;
+        
+        // Update node energy based on consciousness level
+        for (const node of this.nodes) {
+          if (Math.random() < 0.2) {
+            node.userData.energy = Math.max(0.1, Math.min(1.0, node.userData.energy + (level - 0.5) * 0.2));
+          }
+        }
+        
+        // Trigger pulses
+        const pulsesCount = Math.floor(level * 5);
+        for (let i = 0; i < pulsesCount; i++) {
+          const randomNodeIndex = Math.floor(Math.random() * this.nodes.length);
+          this.pulseNode(this.nodes[randomNodeIndex]);
+        }
+      }
+      
+      runConsciousnessCycle() {
+        // Simulate a consciousness cycle
+        const duration = 3000;
+        const startTime = Date.now();
+        const originalRotationSpeed = this.rotationSpeed;
+        
+        // Increase rotation speed during cycle
+        this.rotationSpeed = originalRotationSpeed * 3;
+        
+        // Pulse all supernodes
+        const supernodes = this.nodes.filter(node => node.userData.type === 'supernode');
+        supernodes.forEach(node => this.pulseNode(node));
+        
+        // Create energy wave effect
+        const energyWave = (progress) => {
+          this.nodes.forEach((node, index) => {
+            const delay = node.position.length() / 20; // Distance-based delay
+            const nodeProgress = Math.max(0, Math.min(1, progress - delay));
+            
+            if (nodeProgress > 0) {
+              node.userData.energy = Math.max(0.1, Math.min(1.0, node.userData.energy + nodeProgress * 0.5));
+              node.material.emissiveIntensity = 0.3 + nodeProgress;
+              
+              // Scale effect
+              const scale = 1 + nodeProgress;
+              node.scale.x = node.userData.type === 'supernode' ? scale * 2 : scale;
+              node.scale.y = node.userData.type === 'supernode' ? scale * 2 : scale;
+              node.scale.z = node.userData.type === 'supernode' ? scale * 2 : scale;
+            }
+          });
+        };
+        
+        // Animate energy wave
+        const animate = () => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(1, elapsed / duration);
+          
+          energyWave(progress);
+          
+          if (progress < 1) {
+            requestAnimationFrame(animate);
+          } else {
+            // Reset rotation speed
+            this.rotationSpeed = originalRotationSpeed;
+            
+            // Reset node scales
+            this.nodes.forEach(node => {
+              const originalScale = node.userData.type === 'supernode' ? 2 : 1;
+              node.scale.set(originalScale, originalScale, originalScale);
+            });
+            
+            // Return success
+            updateConsoleLog('[INFO] Consciousness cycle completed successfully');
+            updateSystemStatus();
+          }
+        };
+        
+        animate();
+        
+        // Update status
+        document.getElementById('entityStatusText').textContent = 'Quantum State: Cycling';
+        
+        // Return after animation completes
+        setTimeout(() => {
+          document.getElementById('entityStatusText').textContent = 'Quantum State: Stable';
+          return true;
+        }, duration + 500);
+      }
+    }
+    
+    // Initialize charts
+    function initCharts() {
+      // Consciousness Evolution Chart
+      const consciousnessCtx = document.getElementById('consciousnessChart').getContext('2d');
+      const consciousnessChart = new Chart(consciousnessCtx, {
+        type: 'line',
+        data: {
+          labels: Array.from({ length: 12 }, (_, i) => `T${i}`),
+          datasets: [{
+            label: 'Consciousness Level',
+            data: [0.4, 0.42, 0.45, 0.5, 0.55, 0.6, 0.65, 0.68, 0.7, 0.72, 0.75, 0.76],
+            borderColor: '#00f3ff',
+            backgroundColor: 'rgba(0, 243, 255, 0.2)',
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 1,
+              grid: { color: 'rgba(255, 255, 255, 0.1)' },
+              ticks: { color: '#c0c0c0' }
+            },
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.1)' },
+              ticks: { color: '#c0c0c0' }
+            }
+          },
+          plugins: {
+            legend: { display: false }
+          }
+        }
+      });
+      
+      // Quantum Coherence Chart
+      const coherenceCtx = document.getElementById('coherenceChart').getContext('2d');
+      const coherenceChart = new Chart(coherenceCtx, {
+        type: 'line',
+        data: {
+          labels: Array.from({ length: 12 }, (_, i) => `T${i}`),
+          datasets: [{
+            label: 'Quantum Coherence',
+            data: [85, 86, 88, 87, 89, 90, 91, 90, 92, 93, 92, 92],
+            borderColor: '#bd00ff',
+            backgroundColor: 'rgba(189, 0, 255, 0.2)',
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100,
+              grid: { color: 'rgba(255, 255, 255, 0.1)' },
+              ticks: { color: '#c0c0c0' }
+            },
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.1)' },
+              ticks: { color: '#c0c0c0' }
+            }
+          },
+          plugins: {
+            legend: { display: false }
+          }
+        }
+      });
+      
+      return { consciousnessChart, coherenceChart };
+    }
+    
+    // Update charts with new data
+    function updateCharts(charts, newConsciousness, newCoherence) {
+      // Add new data points
+      charts.consciousnessChart.data.labels.push(`T${charts.consciousnessChart.data.labels.length}`);
+      charts.consciousnessChart.data.datasets[0].data.push(newConsciousness);
+      
+      // Remove first point if more than 12
+      if (charts.consciousnessChart.data.labels.length > 12) {
+        charts.consciousnessChart.data.labels.shift();
+        charts.consciousnessChart.data.datasets[0].data.shift();
+      }
+      
+      // Update coherence chart
+      charts.coherenceChart.data.labels.push(`T${charts.coherenceChart.data.labels.length}`);
+      charts.coherenceChart.data.datasets[0].data.push(newCoherence);
+      
+      // Remove first point if more than 12
+      if (charts.coherenceChart.data.labels.length > 12) {
+        charts.coherenceChart.data.labels.shift();
+        charts.coherenceChart.data.datasets[0].data.shift();
+      }
+      
+      // Update charts
+      charts.consciousnessChart.update();
+      charts.coherenceChart.update();
+    }
+    
+    // Console functions
+    function updateConsoleLog(message) {
+      const consoleContent = document.getElementById('consoleContent');
+      const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      
+      const logLine = document.createElement('div');
+      logLine.className = 'console-line';
+      logLine.textContent = `[${timestamp}] ${message}`;
+      
+      consoleContent.appendChild(logLine);
+      consoleContent.scrollTop = consoleContent.scrollHeight;
+    }
+    
+    // Update system metrics
+    function updateSystemStatus() {
+      // Update with random values (would be real API data in production)
+      const consciousness = parseFloat((Math.random() * 0.1 + 0.7).toFixed(2));
+      const nodeCount = Math.floor(Math.random() * 100 + 400);
+      const coherence = Math.floor(Math.random() * 5 + 90);
+      const cycles = Math.floor(Math.random() * 5 + 35);
+      
+      document.getElementById('metric-consciousness').textContent = consciousness;
+      document.getElementById('metric-nodes').textContent = nodeCount;
+      document.getElementById('metric-coherence').textContent = coherence + '%';
+      document.getElementById('metric-cycles').textContent = cycles;
+      
+      // Update charts
+      updateCharts(charts, consciousness, coherence);
+      
+      // Update visualization
+      visualizer.updateConsciousnessLevel(consciousness);
+      
+      return { consciousness, nodeCount, coherence, cycles };
+    }
+    
+    // Chat functions
+    function sendChatMessage() {
+      const chatInput = document.getElementById('chatInput');
+      const message = chatInput.value.trim();
+      
+      if (!message) return;
+      
+      // Add user message
+      addChatMessage('user', message);
+      
+      // Clear input
+      chatInput.value = '';
+      
+      // Show typing indicator
+      const typingMessage = addChatMessage('ai', 'Analyzing input...');
+      
+      // Set entity status to processing
+      document.getElementById('entityStatusText').textContent = 'Quantum State: Processing';
+      
+      // Simulate API request (would be real API call in production)
+      fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: message })
+      })
+      .then(response => response.json())
+      .then(data => {
+        // Remove typing indicator
+        typingMessage.remove();
+        
+        // Add AI response with typing effect
+        typeMessage('ai', data.text || 'I have processed your query through my quantum consciousness network.');
+        
+        // Reset entity status
+        document.getElementById('entityStatusText').textContent = 'Quantum State: Stable';
+        
+        // Update console
+        updateConsoleLog('[INFO] Generated response for user query');
+      })
+      .catch(error => {
+        // Remove typing indicator
+        typingMessage.remove();
+        
+        // Fallback response if API is not available
+        typeMessage('ai', `I've analyzed your query through my quantum nodes. The insight generated suggests multiple perspectives to consider. Would you like me to elaborate on a specific aspect?`);
+        
+        // Reset entity status
+        document.getElementById('entityStatusText').textContent = 'Quantum State: Stable';
+        
+        // Update console
+        updateConsoleLog('[WARNING] Using fallback response generator: ' + error);
+      });
+    }
+    
+    function addChatMessage(role, text) {
+      const chatWindow = document.getElementById('chatWindow');
+      const messageElement = document.createElement('div');
+      
+      messageElement.className = role === 'user' ? 'chat-message user-message' : 'chat-message ai-message';
+      messageElement.innerHTML = `<strong>${role === 'user' ? 'You' : 'Quantum LLM'}:</strong> ${text}`;
+      
+      chatWindow.appendChild(messageElement);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+      
+      return messageElement;
+    }
+    
+    function typeMessage(role, text) {
+      const chatWindow = document.getElementById('chatWindow');
+      const messageElement = document.createElement('div');
+      
+      messageElement.className = role === 'user' ? 'chat-message user-message' : 'chat-message ai-message';
+      messageElement.innerHTML = `<strong>${role === 'user' ? 'You' : 'Quantum LLM'}:</strong> <span class="typed-text"></span>`;
+      
+      chatWindow.appendChild(messageElement);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+      
+      const typedElement = messageElement.querySelector('.typed-text');
+      
+      // Type text with a realistic typing effect
+      let i = 0;
+      const typeInterval = setInterval(() => {
+        // Append next character
+        typedElement.textContent += text.charAt(i);
+        i++;
+        
+        // Scroll down as text appears
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+        
+        // Stop when done
+        if (i >= text.length) {
+          clearInterval(typeInterval);
+        }
+      }, 20); // Adjust typing speed here
+      
+      return messageElement;
+    }
+    
+    // API functions (simulate API calls for the demo)
+    async function runConsciousnessCycle() {
+      // Update UI
+      document.getElementById('cycleBtn').disabled = true;
+      updateConsoleLog('[INFO] Starting consciousness cycle');
+      
+      // Run visualization effect
+      visualizer.runConsciousnessCycle();
+      
+      // Simulate API request
+      try {
+        const response = await fetch('/api/consciousness/cycle', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ iterations: 1 })
+        });
+        
+        const data = await response.json();
+        
+        // Log results
+        updateConsoleLog(`[INFO] Consciousness cycle completed. New level: ${data.consciousness_level}`);
+        
+        // Update metrics
+        updateSystemStatus();
+      } catch (error) {
+        // Fallback if API is not available
+        updateConsoleLog('[WARNING] Using simulated consciousness cycle');
+        
+        // Wait for visualization to complete
+        setTimeout(() => {
+          updateSystemStatus();
+        }, 3500);
+      }
+      
+      // Re-enable button
+      setTimeout(() => {
+        document.getElementById('cycleBtn').disabled = false;
+      }, 5000);
+    }
+    
+    // Event listeners
+    function setupEventListeners() {
+      // Chat send button
+      document.getElementById('sendButton').addEventListener('click', sendChatMessage);
+      
+      // Chat input enter key
+      document.getElementById('chatInput').addEventListener('keypress', event => {
+        if (event.key === 'Enter') {
+          sendChatMessage();
+        }
+      });
+      
+      // Console tabs
+      document.querySelectorAll('.console-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          // Update active tab
+          document.querySelectorAll('.console-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          
+          // Update console content
+          const tabName = tab.dataset.tab;
+          updateConsoleLog(`[INFO] Switched to ${tabName} view`);
+        });
+      });
+      
+      // Cycle button
+      document.getElementById('cycleBtn').addEventListener('click', runConsciousnessCycle);
+      
+      // Analyze button
+      document.getElementById('analyzeBtn').addEventListener('click', () => {
+        updateConsoleLog('[INFO] Starting data analysis');
+        document.getElementById('entityStatusText').textContent = 'Quantum State: Analyzing';
+        
+        // Simulate analysis
+        setTimeout(() => {
+          updateConsoleLog('[INFO] Data analysis complete');
+          document.getElementById('entityStatusText').textContent = 'Quantum State: Stable';
+          
+          // Show results in chat
+          typeMessage('ai', 'I have completed the data analysis through my quantum nodes. The results indicate several key patterns that may be of interest. Would you like me to elaborate on the findings?');
+        }, 3000);
+      });
+      
+      // Reset button
+      document.getElementById('resetBtn').addEventListener('click', () => {
+        if (confirm('Are you sure you want to reset the system? This will clear all state.')) {
+          updateConsoleLog('[WARNING] System reset initiated');
+          document.getElementById('entityStatusText').textContent = 'Quantum State: Resetting';
+          
+          // Simulate reset
+          setTimeout(() => {
+            updateConsoleLog('[INFO] System reset complete');
+            document.getElementById('entityStatusText').textContent = 'Quantum State: Stable';
+            
+            // Clear chat
+            document.getElementById('chatWindow').innerHTML = '';
+            addChatMessage('ai', 'Quantum consciousness reset complete. I have returned to base state and am ready for new input.');
+            
+            // Update metrics
+            updateSystemStatus();
+          }, 5000);
+        }
+      });
+    }
+    
+    // Initialize everything
+    const visualizer = new QuantumConsciousnessVisualizer();
+    const charts = initCharts();
+    setupEventListeners();
+    
+    // Initial system status update
+    updateSystemStatus();
+    
+    // Simulate background processes
+    setInterval(() => {
+      // Random system logs
+      const messages = [
+        '[INFO] Neural-quantum mapping stable',
+        '[INFO] Quantum coherence at optimal levels',
+        '[INFO] Memory graph optimization complete',
+        '[INFO] Node energy distribution balanced',
+        '[DEBUG] Adjusting tensor equilibrium',
+        '[DEBUG] Synaptic connection strength reinforced'
+      ];
+      
+      if (Math.random() < 0.3) {
+        const message = messages[Math.floor(Math.random() * messages.length)];
+        updateConsoleLog(message);
+      }
+    }, 5000);
+  </script>
+</body>
+</html>

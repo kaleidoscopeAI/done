@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+import os
+import sys
+import logging
+import logging.handlers
+from pathlib import Path
+
+def configure_logging(log_dir="unravel_ai_workdir/logs", log_level=logging.INFO):
+    """
+    Configure logging for the entire application with rotating file handlers 
+    and proper formatting.
+    
+    Args:
+        log_dir (str): Directory where log files will be stored
+        log_level (int): Logging level for the console handler
+        
+    Returns:
+        logging.Logger: The configured root logger
+    """
+    # Create log directory if it doesn't exist
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Create formatters
+    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+    file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s (%(filename)s:%(lineno)d): %(message)s')
+    
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(console_formatter)
+    
+    # Create file handlers
+    main_file_handler = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, 'unravel_ai.log'),
+        maxBytes=10*1024*1024,  # 10 MB
+        backupCount=5
+    )
+    main_file_handler.setLevel(log_level)
+    main_file_handler.setFormatter(file_formatter)
+    
+    error_file_handler = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, 'errors.log'),
+        maxBytes=10*1024*1024,  # 10 MB
+        backupCount=5
+    )
+    error_file_handler.setLevel(logging.ERROR)
+    error_file_handler.setFormatter(file_formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # Set to lowest level, handlers will filter
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Add handlers to root logger
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(main_file_handler)
+    root_logger.addHandler(error_file_handler)
+    
+    # Configure specific loggers
+    for logger_name, logger_level in [
+        ('urllib3', logging.WARNING),
+        ('PIL', logging.WARNING),
+        ('matplotlib', logging.WARNING),
+        ('requests', logging.WARNING),
+        ('transformers', logging.WARNING),
+        ('asyncio', logging.WARNING),
+        ('docker', logging.WARNING),
+        ('aiohttp', logging.WARNING),
+        ('sqlalchemy', logging.WARNING),
+        ('pydantic', logging.WARNING),
+        ('uvicorn', logging.WARNING)
+    ]:
+        logging.getLogger(logger_name).setLevel(logger_level)
+    
+    logging.info("Logging configured successfully")
+    
+    return root_logger
+
+def get_logger(name, log_level=None):
+    """
+    Get a named logger with optional level override.
+    
+    Args:
+        name (str): Name for the logger
+        log_level (int, optional): Override default logging level
+        
+    Returns:
+        logging.Logger: The configured logger
+    """
+    logger = logging.getLogger(name)
+    if log_level is not None:
+        logger.setLevel(log_level)
+    return logger
+
+if __name__ == "__main__":
+    # Test the logging configuration if run directly
+    logger = configure_logging()
+    logger.debug("This is a debug message")
+    logger.info("This is an info message")
+    logger.warning("This is a warning message")
+    logger.error("This is an error message")
+    logger.critical("This is a critical message")
+    
+    # Test named logger
+    test_logger = get_logger("test_module")
+    test_logger.info("This is a message from the test module")

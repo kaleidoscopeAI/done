@@ -1,0 +1,66 @@
+#include "collaboration_nodes.h"
+#include <stdlib.h>
+#include <stdio.h>
+
+// Initialize a Collaboration Node
+CollaborationNode* init_collaboration_node(uint64_t id, uint64_t max_subtasks) {
+    CollaborationNode* collab_node = (CollaborationNode*)malloc(sizeof(CollaborationNode));
+    if (!collab_node) return NULL;
+
+    collab_node->id = id;
+    collab_node->subtasks = (Task**)malloc(sizeof(Task*) * max_subtasks);
+    if (!collab_node->subtasks) {
+        free(collab_node);
+        return NULL;
+    }
+
+    collab_node->subtask_count = 0;
+    collab_node->max_subtasks = max_subtasks;
+    collab_node->is_active = 1;
+
+    printf("Collaboration Node %lu initialized with capacity for %lu subtasks.\n", id, max_subtasks);
+    return collab_node;
+}
+
+// Assign a Subtask to the Collaboration Node
+void assign_subtask(CollaborationNode* collab_node, Task* subtask) {
+    if (!collab_node || collab_node->subtask_count >= collab_node->max_subtasks || !subtask) {
+        printf("Collaboration Node %lu: Cannot assign subtask. Node full or invalid subtask.\n", collab_node->id);
+        return;
+    }
+
+    collab_node->subtasks[collab_node->subtask_count++] = subtask;
+    printf("Subtask %lu assigned to Collaboration Node %lu.\n", subtask->id, collab_node->id);
+}
+
+// Execute Subtasks in the Collaboration Node
+void execute_subtasks(CollaborationNode* collab_node) {
+    if (!collab_node || collab_node->subtask_count == 0) return;
+
+    printf("Executing subtasks in Collaboration Node %lu...\n", collab_node->id);
+
+    for (uint64_t i = 0; i < collab_node->subtask_count; i++) {
+        Task* subtask = collab_node->subtasks[i];
+        if (subtask) {
+            printf("Executing Subtask %lu (Priority: %u)...\n",
+                   subtask->id, subtask->priority);
+            free(subtask);
+        }
+    }
+
+    collab_node->subtask_count = 0; // Reset subtask count after execution
+}
+
+// Destroy the Collaboration Node
+void destroy_collaboration_node(CollaborationNode* collab_node) {
+    if (collab_node) {
+        uint64_t node_id = collab_node->id; // Store the ID before freeing
+        for (uint64_t i = 0; i < collab_node->subtask_count; i++) {
+            free(collab_node->subtasks[i]);
+        }
+        free(collab_node->subtasks);
+        free(collab_node);
+        printf("Collaboration Node %lu destroyed.\n", node_id);
+    }
+}
+

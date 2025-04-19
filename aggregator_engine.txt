@@ -1,0 +1,50 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "aggregator_engine.h"
+#include "memory_graph.h"
+
+// Initialize Aggregated Kaleidoscope Engine
+AggregatorEngine* init_aggregator_engine(MemoryGraph* memory_graph) {
+    AggregatorEngine* engine = (AggregatorEngine*)malloc(sizeof(AggregatorEngine));
+    if (!engine) {
+        printf("Error: Failed to allocate memory for Aggregator Engine.\n");
+        return NULL;
+    }
+
+    engine->memory_graph = memory_graph;
+    engine->meta_insight_count = 0;
+
+    printf("Aggregator Kaleidoscope Engine initialized.\n");
+    return engine;
+}
+
+// Synthesize Insights
+void synthesize_insights(AggregatorEngine* engine, const char* primary_insight, const char* mirrored_hypothesis) {
+    if (!engine || !primary_insight || !mirrored_hypothesis) {
+        printf("Aggregator Engine: Invalid inputs.\n");
+        return;
+    }
+
+    printf("Synthesizing insights:\n  Primary: %s\n  Mirrored: %s\n", primary_insight, mirrored_hypothesis);
+
+    // Create a synthesized meta-insight
+    char meta_insight[512];
+    snprintf(meta_insight, sizeof(meta_insight), "Meta-Insight: [%s] combined with [%s]",
+             primary_insight, mirrored_hypothesis);
+
+    // Create a memory node and add to Memory Graph
+    MemoryNode* new_node = create_memory_node(meta_insight, rand() % 100);
+    add_memory_node(engine->memory_graph, new_node);
+    engine->meta_insight_count++;
+
+    printf("Generated Meta-Insight: %s\n", meta_insight);
+}
+
+// Cleanup Aggregator Engine
+void destroy_aggregator_engine(AggregatorEngine* engine) {
+    if (engine) {
+        printf("Destroying Aggregator Kaleidoscope Engine.\n");
+        free(engine);
+    }
+}

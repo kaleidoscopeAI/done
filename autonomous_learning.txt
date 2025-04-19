@@ -1,0 +1,294 @@
+#include "autonomous_learning.h"
+#include "data_ingestion.h"
+#include "web_crawler.h"
+#include "memory_graph.h"
+#include "feedback_system.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <stdarg.h>
+
+#define INITIAL_GAP_CAPACITY 50
+#define MAX_GAP_CAPACITY 1000
+
+// Error handling
+static char al_error_buffer[256] = "No error";
+
+static void set_autonomous_learning_error(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsnprintf(al_error_buffer, sizeof(al_error_buffer), format, args);
+    va_end(args);
+    fprintf(stderr, "[Autonomous Learning Error] %s\n", al_error_buffer);
+}
+
+const char* autonomous_learning_get_last_error(void) {
+    return al_error_buffer;
+}
+
+// Initialize autonomous learning system
+AutonomousLearning* init_autonomous_learning(
+    DataIngestionLayer* ingestion,
+    WebCrawler* crawler,
+    MemoryGraph* graph,
+    FeedbackCollector* feedback)
+{
+    if (!ingestion || !crawler || !graph || !feedback) {
+        set_autonomous_learning_error("Invalid NULL arguments during initialization");
+        return NULL;
+    }
+    AutonomousLearning* system = (AutonomousLearning*)malloc(sizeof(AutonomousLearning));
+    if (!system) {
+        set_autonomous_learning_error("Failed to allocate memory for AutonomousLearning system");
+        return NULL;
+    }
+    system->ingestion_layer = ingestion;
+    system->crawler = crawler;
+    system->memory_graph = graph;
+    system->feedback_system = feedback;
+    system->knowledge_gaps = NULL;
+    system->gap_count = 0;
+    system->gap_capacity = 0;
+    system->last_process_time = 0;
+
+    printf("Autonomous Learning system initialized.\n");
+    return system;
+}
+
+// Destroy autonomous learning system
+void destroy_autonomous_learning(AutonomousLearning* system) {
+    if (!system) return;
+    // Free knowledge gaps
+    if (system->knowledge_gaps) {
+        for (uint32_t i = 0; i < system->gap_count; ++i) {
+            free(system->knowledge_gaps[i]->topic);
+            free(system->knowledge_gaps[i]);
+        }
+        free(system->knowledge_gaps);
+    }
+    free(system);
+    printf("Autonomous Learning system destroyed.\n");
+}
+
+// Check for knowledge gaps in the system
+void identify_knowledge_gaps(AutonomousLearning* system) {
+    if (!system) return;
+    // Placeholder logic: Check feedback for negative scores or specific requests
+    // Example: Look for feedback entries indicating missing information
+    // Example: Analyze graph structure for weakly connected areas
+
+    // Dummy gap identification
+    if (system->gap_count == 0 && (rand() % 10 == 0)) { // Randomly add a gap sometimes
+        uint32_t new_capacity = system->gap_capacity == 0 ? 4 : system->gap_capacity * 2;
+        KnowledgeGap** new_gaps = (KnowledgeGap**)realloc(system->knowledge_gaps, sizeof(KnowledgeGap*) * new_capacity);
+        if (!new_gaps) {
+            set_autonomous_learning_error("Failed to reallocate memory for knowledge gaps");
+            return;
+        }
+        system->knowledge_gaps = new_gaps;
+        system->gap_capacity = new_capacity;
+
+        KnowledgeGap* new_gap = (KnowledgeGap*)malloc(sizeof(KnowledgeGap));
+        if (!new_gap) {
+             set_autonomous_learning_error("Failed to allocate memory for new knowledge gap");
+             return;
+        }
+        new_gap->id = system->gap_count + 1; // Simple ID
+        new_gap->topic = strdup("Quantum Entanglement Applications"); // Example topic
+        new_gap->priority = (double)rand() / RAND_MAX;
+        new_gap->identified_timestamp = time(NULL);
+
+        system->knowledge_gaps[system->gap_count++] = new_gap;
+        printf("Identified new knowledge gap: %s (Priority: %.2f)\n", new_gap->topic, new_gap->priority);
+    }
+}
+
+// Address a specific knowledge gap
+void fill_knowledge_gaps(AutonomousLearning* system) {
+     if (!system || system->gap_count == 0) return;
+
+     // Prioritize gaps (simple highest priority first for now)
+     int best_gap_index = -1;
+     double max_priority = -1.0;
+     for (uint32_t i = 0; i < system->gap_count; ++i) {
+         if (system->knowledge_gaps[i]->priority > max_priority) {
+             max_priority = system->knowledge_gaps[i]->priority;
+             best_gap_index = i;
+         }
+     }
+
+     if (best_gap_index != -1) {
+         KnowledgeGap* gap_to_fill = system->knowledge_gaps[best_gap_index];
+         printf("Attempting to fill knowledge gap: %s\n", gap_to_fill->topic);
+
+         // Trigger autonomous crawl via the web crawler
+         bool crawl_started = autonomous_data_crawl(system->crawler, gap_to_fill->topic, true); // High priority
+
+         if (crawl_started) {
+             // Remove the gap from the list (or mark as being processed)
+             free(gap_to_fill->topic);
+             free(gap_to_fill);
+             // Shift remaining gaps
+             for (uint32_t i = best_gap_index; i < system->gap_count - 1; ++i) {
+                 system->knowledge_gaps[i] = system->knowledge_gaps[i + 1];
+             }
+             system->gap_count--;
+             printf("Knowledge gap removed after initiating crawl.\n");
+         } else {
+             printf("Failed to start crawl for knowledge gap: %s\n", gap_to_fill->topic);
+             // Optionally reduce priority or retry later
+         }
+     }
+}
+
+// Process cycle - should be called periodically
+void autonomous_learning_process(AutonomousLearning* system) {
+    if (!system) return;
+    uint64_t current_time = time(NULL);
+    // Run periodically (e.g., every few seconds)
+    if (current_time - system->last_process_time < 5) { // Run every 5 seconds
+        return;
+    }
+    system->last_process_time = current_time;
+
+    // printf("Running autonomous learning cycle...\n");
+
+    // Step 1: Identify new knowledge gaps
+    identify_knowledge_gaps(system);
+
+    // Step 2: Attempt to fill the highest priority gap
+    fill_knowledge_gaps(system);
+
+    // Step 3: Process newly ingested data (placeholder)
+    // - Analyze data from ingestion layer
+    // - Update memory graph based on analysis
+    // - Generate feedback based on learning success/failure
+
+    // Step 4: Refine learning models (placeholder)
+}
+
+// Evaluate knowledge state for a specific topic
+KnowledgeState evaluate_knowledge_state(AutonomousLearning* system, const char* topic) {
+    if (!system || !topic) return KNOWLEDGE_STATE_UNKNOWN;
+    
+    // Count how many text entries contain this topic
+    uint32_t mentions = 0;
+    uint32_t detailed_mentions = 0;
+    
+    if (system->ingestion_layer && system->ingestion_layer->text_data) {
+        for (uint64_t i = 0; i < system->ingestion_layer->text_count; i++) {
+            char* text = system->ingestion_layer->text_data[i];
+            if (text && strstr(text, topic)) {
+                mentions++;
+                
+                // Check if this is a detailed mention (at least 100 characters and multiple sentences)
+                if (strlen(text) > 100 && strchr(text, '.') && strchr(text, '.') != strrchr(text, '.')) {
+                    detailed_mentions++;
+                }
+            }
+        }
+    }
+    
+    // Check memory graph for nodes related to this topic
+    uint32_t related_nodes = 0;
+    if (system->memory_graph && system->memory_graph->nodes) {
+        for (uint64_t i = 0; i < system->memory_graph->node_count; i++) {
+            MemoryNode* node = &system->memory_graph->nodes[i];
+            if (node->data && strstr(node->data, topic)) {
+                related_nodes++;
+            }
+        }
+    }
+    
+    // Determine knowledge state based on counts
+    if (mentions == 0 && related_nodes == 0) {
+        return KNOWLEDGE_STATE_UNKNOWN;
+    } else if (detailed_mentions >= 3 || related_nodes >= 5) {
+        return KNOWLEDGE_STATE_COMPREHENSIVE;
+    } else if (detailed_mentions >= 1 || (mentions >= 2 && related_nodes >= 2)) {
+        return KNOWLEDGE_STATE_SUFFICIENT;
+    } else {
+        return KNOWLEDGE_STATE_PARTIAL;
+    }
+}
+
+// Add knowledge gap manually
+void add_knowledge_gap(AutonomousLearning* system, const char* topic, 
+                      KnowledgeGapType gap_type, float priority) {
+    if (!system || !topic) return;
+    
+    // Check if we need to expand capacity
+    if (system->gap_count >= system->gap_capacity) {
+        if (system->gap_capacity >= MAX_GAP_CAPACITY) {
+            printf("Maximum knowledge gap capacity reached\n");
+            return;
+        }
+        
+        // Double capacity
+        uint32_t new_capacity = system->gap_capacity * 2;
+        if (new_capacity > MAX_GAP_CAPACITY) {
+            new_capacity = MAX_GAP_CAPACITY;
+        }
+        
+        KnowledgeGap* new_gaps = (KnowledgeGap*)realloc(system->knowledge_gaps, 
+                                                      sizeof(KnowledgeGap) * new_capacity);
+        if (!new_gaps) {
+            printf("Failed to expand knowledge gap capacity\n");
+            return;
+        }
+        
+        system->knowledge_gaps = new_gaps;
+        system->gap_capacity = new_capacity;
+    }
+    
+    // Add the new gap
+    KnowledgeGap* gap = &system->knowledge_gaps[system->gap_count];
+    strncpy(gap->topic, topic, sizeof(gap->topic) - 1);
+    gap->topic[sizeof(gap->topic) - 1] = '\0';
+    gap->gap_type = gap_type;
+    gap->priority = priority;
+    gap->timestamp = time(NULL);
+    gap->being_addressed = false;
+    
+    system->gap_count++;
+    system->gaps_identified++;
+    
+    printf("Added knowledge gap: %s (priority: %.2f)\n", topic, priority);
+}
+
+// Get number of active knowledge gaps
+uint32_t get_knowledge_gap_count(AutonomousLearning* system) {
+    return system ? system->gap_count : 0;
+}
+
+// Check if a topic is already in the knowledge gaps
+bool is_topic_in_knowledge_gaps(AutonomousLearning* system, const char* topic) {
+    if (!system || !topic) return false;
+    
+    for (uint32_t i = 0; i < system->gap_count; i++) {
+        if (strcmp(system->knowledge_gaps[i].topic, topic) == 0) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Get the highest priority knowledge gap
+KnowledgeGap* get_highest_priority_gap(AutonomousLearning* system) {
+    if (!system || system->gap_count == 0) return NULL;
+    
+    KnowledgeGap* highest = NULL;
+    float highest_priority = -1.0f;
+    
+    for (uint32_t i = 0; i < system->gap_count; i++) {
+        if (!system->knowledge_gaps[i].being_addressed && 
+            system->knowledge_gaps[i].priority > highest_priority) {
+            highest = &system->knowledge_gaps[i];
+            highest_priority = system->knowledge_gaps[i].priority;
+        }
+    }
+    
+    return highest;
+}

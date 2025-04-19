@@ -1,0 +1,14 @@
+2025-04-19 17:34:49,316 - ResonanceSystem - INFO - Initialized simple embedding model (dim=384)
+2025-04-19 17:34:49,328 - KaleidoscopeRunner - ERROR - Error importing integration layer: No module named 'kaleidoscope_ai'
+2025-04-19 17:37:52,684 - ResonanceSystem - INFO - Initialized simple embedding model (dim=384)
+2025-04-19 17:37:52,689 - KaleidoscopeRunner - ERROR - Error importing integration layer: No module named 'kaleidoscope_ai'
+2025-04-19 17:38:39,699 - ResonanceSystem - INFO - Initialized simple embedding model (dim=384)
+2025-04-19 17:38:39,708 - KaleidoscopeRunner - ERROR - Error importing integration layer: No module named 'kaleidoscope_ai'
+2025-04-19 18:10:53,084 - KaleidoscopeRunner - INFO - Starting Kaleidoscope AI system...
+2025-04-19 18:10:53,084 - KaleidoscopeAI - INFO - Initialized ResonanceSystemEngine with dimension 384
+2025-04-19 18:10:53,085 - KaleidoscopeIntegration - INFO - Created minimal NodeManager
+2025-04-19 18:10:53,086 - KaleidoscopeIntegration - INFO - Created minimal PerspectiveManager
+2025-04-19 18:10:53,087 - KaleidoscopeIntegration - INFO - IntegrationLayer initialized successfully
+2025-04-19 18:10:53,087 - KaleidoscopeIntegration - INFO - Starting integration layer...
+2025-04-19 18:10:53,087 - KaleidoscopeAI - INFO - Started background tasks for ResonanceSystemEngine
+2025-04-19 18:10:53,087 - KaleidoscopeIntegration - INFO - Integration layer started

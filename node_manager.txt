@@ -1,0 +1,369 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "node_manager.h"
+#include "mock_jansson.h"  // Replace with actual jansson.h in production
+
+// Set error in node manager
+static void set_node_manager_error(NodeManager* manager, int error_code, const char* format, ...) {
+    if (!manager) return;
+    
+    manager->last_error = error_code;
+    
+    va_list args;
+    va_start(args, format);
+    vsnprintf(manager->error_message, sizeof(manager->error_message), format, args);
+    va_end(args);
+    
+    fprintf(stderr, "[NodeManager Error %d] %s\n", error_code, manager->error_message);
+}
+
+// Initialize node manager
+NodeManager* init_node_manager(void) {
+    NodeManager* manager = (NodeManager*)malloc(sizeof(NodeManager));
+    if (!manager) {
+        fprintf(stderr, "Failed to allocate memory for NodeManager\n");
+        return NULL;
+    }
+    
+    const uint32_t initial_capacity = 100;
+    manager->nodes = (ManagedNode*)malloc(sizeof(ManagedNode) * initial_capacity);
+    if (!manager->nodes) {
+        fprintf(stderr, "Failed to allocate memory for nodes array\n");
+        free(manager);
+        return NULL;
+    }
+    
+    manager->node_count = 0;
+    manager->node_capacity = initial_capacity;
+    manager->next_node_id = 1; // Start with 1 as the first ID
+    manager->last_error = NODE_MANAGER_SUCCESS;
+    strcpy(manager->error_message, "No error");
+    
+    printf("NodeManager initialized with capacity for %u nodes\n", initial_capacity);
+    return manager;
+}
+
+// Create a node
+int create_managed_node(NodeManager* manager, uint64_t node_id, NodeType node_type, const char* properties_json) {
+    if (!manager) {
+        return NODE_MANAGER_ERROR_INVALID_PARAMETER;
+    }
+    
+    if (node_id == 0) {
+        node_id = manager->next_node_id++;
+    }
+    
+    // Check if node already exists
+    for (uint32_t i = 0; i < manager->node_count; i++) {
+        if (manager->nodes[i].id == node_id) {
+            set_node_manager_error(manager, NODE_MANAGER_ERROR_NODE_EXISTS, 
+                                   "Node %lu already exists", node_id);
+            return NODE_MANAGER_ERROR_NODE_EXISTS;
+        }
+    }
+    
+    // Ensure capacity
+    if (manager->node_count >= manager->node_capacity) {
+        uint32_t new_capacity = manager->node_capacity * 2;
+        ManagedNode* new_nodes = (ManagedNode*)realloc(manager->nodes, 
+                                                     sizeof(ManagedNode) * new_capacity);
+        if (!new_nodes) {
+            set_node_manager_error(manager, NODE_MANAGER_ERROR_MEMORY_ALLOCATION, 
+                                   "Failed to allocate memory for expanded nodes array");
+            return NODE_MANAGER_ERROR_MEMORY_ALLOCATION;
+        }
+        
+        manager->nodes = new_nodes;
+        manager->node_capacity = new_capacity;
+    }
+    
+    // Initialize the new node
+    ManagedNode* node = &manager->nodes[manager->node_count];
+    node->id = node_id;
+    node->type = node_type;
+    node->properties = NULL;
+    node->property_count = 0;
+    node->property_capacity = 0;
+    
+    // Parse properties JSON if provided
+    if (properties_json) {
+        if (parse_json_properties(node, properties_json) != NODE_MANAGER_SUCCESS) {
+            return manager->last_error;
+        }
+    }
+    
+    // Create node in backend system via bridge
+    bool bridge_success = bridge_create_node(node_id, (int)node_type);
+    if (!bridge_success) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_BRIDGE_FAILED, 
+                               "Failed to create node in backend: %s", 
+                               bridge_get_last_error_message());
+        
+        // Clean up properties
+        for (uint32_t i = 0; i < node->property_count; i++) {
+            free(node->properties[i].key);
+            free(node->properties[i].value);
+        }
+        free(node->properties);
+        
+        return NODE_MANAGER_ERROR_BRIDGE_FAILED;
+    }
+    
+    // Update node count
+    manager->node_count++;
+    
+    printf("Created node %lu of type %d\n", node_id, node_type);
+    return NODE_MANAGER_SUCCESS;
+}
+
+// Update a node
+int update_managed_node(NodeManager* manager, uint64_t node_id, const char* properties_json) {
+    if (!manager || !properties_json) {
+        return NODE_MANAGER_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Find the node
+    ManagedNode* node = NULL;
+    for (uint32_t i = 0; i < manager->node_count; i++) {
+        if (manager->nodes[i].id == node_id) {
+            node = &manager->nodes[i];
+            break;
+        }
+    }
+    
+    if (!node) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_NODE_NOT_FOUND, 
+                               "Node %lu not found", node_id);
+        return NODE_MANAGER_ERROR_NODE_NOT_FOUND;
+    }
+    
+    // Free existing properties
+    for (uint32_t i = 0; i < node->property_count; i++) {
+        free(node->properties[i].key);
+        free(node->properties[i].value);
+    }
+    node->property_count = 0;
+    
+    // Parse new properties
+    if (parse_json_properties(node, properties_json) != NODE_MANAGER_SUCCESS) {
+        return manager->last_error;
+    }
+    
+    // Update node in backend system via bridge
+    bool bridge_success = bridge_update_memory_graph(node_id, properties_json);
+    if (!bridge_success) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_BRIDGE_FAILED, 
+                               "Failed to update node in backend: %s", 
+                               bridge_get_last_error_message());
+        return NODE_MANAGER_ERROR_BRIDGE_FAILED;
+    }
+    
+    printf("Updated node %lu\n", node_id);
+    return NODE_MANAGER_SUCCESS;
+}
+
+// Get a node by ID
+ManagedNode* get_managed_node(NodeManager* manager, uint64_t node_id) {
+    if (!manager) {
+        return NULL;
+    }
+    
+    for (uint32_t i = 0; i < manager->node_count; i++) {
+        if (manager->nodes[i].id == node_id) {
+            return &manager->nodes[i];
+        }
+    }
+    
+    set_node_manager_error(manager, NODE_MANAGER_ERROR_NODE_NOT_FOUND, 
+                           "Node %lu not found", node_id);
+    return NULL;
+}
+
+// Delete a node
+int delete_managed_node(NodeManager* manager, uint64_t node_id) {
+    if (!manager) {
+        return NODE_MANAGER_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Find the node index
+    int node_index = -1;
+    for (uint32_t i = 0; i < manager->node_count; i++) {
+        if (manager->nodes[i].id == node_id) {
+            node_index = i;
+            break;
+        }
+    }
+    
+    if (node_index == -1) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_NODE_NOT_FOUND, 
+                               "Node %lu not found", node_id);
+        return NODE_MANAGER_ERROR_NODE_NOT_FOUND;
+    }
+    
+    // Delete node in backend system via bridge
+    bool bridge_success = bridge_remove_node(node_id);
+    if (!bridge_success) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_BRIDGE_FAILED, 
+                               "Failed to delete node in backend: %s", 
+                               bridge_get_last_error_message());
+        return NODE_MANAGER_ERROR_BRIDGE_FAILED;
+    }
+    
+    // Clean up node properties
+    ManagedNode* node = &manager->nodes[node_index];
+    for (uint32_t i = 0; i < node->property_count; i++) {
+        free(node->properties[i].key);
+        free(node->properties[i].value);
+    }
+    free(node->properties);
+    
+    // Remove node from array by shifting
+    if (node_index < manager->node_count - 1) {
+        memmove(&manager->nodes[node_index], &manager->nodes[node_index + 1], 
+                sizeof(ManagedNode) * (manager->node_count - node_index - 1));
+    }
+    manager->node_count--;
+    
+    printf("Deleted node %lu\n", node_id);
+    return NODE_MANAGER_SUCCESS;
+}
+
+// Connect two nodes
+int connect_managed_nodes(NodeManager* manager, uint64_t source_id, uint64_t target_id, double strength) {
+    if (!manager) {
+        return NODE_MANAGER_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Verify both nodes exist
+    bool source_exists = false;
+    bool target_exists = false;
+    
+    for (uint32_t i = 0; i < manager->node_count; i++) {
+        if (manager->nodes[i].id == source_id) {
+            source_exists = true;
+        }
+        if (manager->nodes[i].id == target_id) {
+            target_exists = true;
+        }
+        if (source_exists && target_exists) {
+            break;
+        }
+    }
+    
+    if (!source_exists) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_NODE_NOT_FOUND, 
+                               "Source node %lu not found", source_id);
+        return NODE_MANAGER_ERROR_NODE_NOT_FOUND;
+    }
+    
+    if (!target_exists) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_NODE_NOT_FOUND, 
+                               "Target node %lu not found", target_id);
+        return NODE_MANAGER_ERROR_NODE_NOT_FOUND;
+    }
+    
+    // Connect nodes in backend system via bridge
+    bool bridge_success = bridge_connect_nodes(source_id, target_id, strength);
+    if (!bridge_success) {
+        set_node_manager_error(manager, NODE_MANAGER_ERROR_BRIDGE_FAILED, 
+                               "Failed to connect nodes in backend: %s", 
+                               bridge_get_last_error_message());
+        return NODE_MANAGER_ERROR_BRIDGE_FAILED;
+    }
+    
+    printf("Connected nodes %lu and %lu with strength %f\n", source_id, target_id, strength);
+    return NODE_MANAGER_SUCCESS;
+}
+
+// Parse JSON properties
+int parse_json_properties(ManagedNode* node, const char* properties_json) {
+    if (!node || !properties_json) {
+        return NODE_MANAGER_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Parse the JSON
+    json_error_t error;
+    json_t* root = json_loads(properties_json, 0, &error);
+    
+    if (!root) {
+        fprintf(stderr, "JSON parsing error: %s\n", error.text);
+        return NODE_MANAGER_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Count properties
+    uint32_t property_count = 0;
+    const char* key;
+    json_t* value;
+    void* iter = json_object_iter(root);
+    
+    while (iter) {
+        property_count++;
+        iter = json_object_iter_next(root, iter);
+    }
+    
+    // Allocate properties array
+    if (node->property_capacity < property_count) {
+        NodeProperty* new_properties = (NodeProperty*)realloc(node->properties, 
+                                                            sizeof(NodeProperty) * property_count);
+        if (!new_properties) {
+            json_decref(root);
+            return NODE_MANAGER_ERROR_MEMORY_ALLOCATION;
+        }
+        
+        node->properties = new_properties;
+        node->property_capacity = property_count;
+    }
+    
+    // Store properties
+    node->property_count = 0;
+    iter = json_object_iter(root);
+    
+    while (iter) {
+        key = json_object_iter_key(iter);
+        value = json_object_iter_value(iter);
+        
+        if (json_is_string(value)) {
+            const char* str_value = json_string_value(value);
+            
+            node->properties[node->property_count].key = strdup(key);
+            node->properties[node->property_count].value = strdup(str_value);
+            node->property_count++;
+        }
+        
+        iter = json_object_iter_next(root, iter);
+    }
+    
+    json_decref(root);
+    return NODE_MANAGER_SUCCESS;
+}
+
+// Destroy node manager
+void destroy_node_manager(NodeManager* manager) {
+    if (!manager) return;
+    
+    // Clean up all nodes
+    for (uint32_t i = 0; i < manager->node_count; i++) {
+        ManagedNode* node = &manager->nodes[i];
+        
+        // Free properties
+        for (uint32_t j = 0; j < node->property_count; j++) {
+            free(node->properties[j].key);
+            free(node->properties[j].value);
+        }
+        free(node->properties);
+    }
+    
+    // Free nodes array
+    free(manager->nodes);
+    
+    // Free manager
+    free(manager);
+    
+    printf("NodeManager destroyed\n");
+}
+
+// Get last error message
+const char* node_manager_get_last_error(NodeManager* manager) {
+    return manager ? manager->error_message : "Invalid NodeManager";
+}

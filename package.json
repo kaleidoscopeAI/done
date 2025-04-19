@@ -1,0 +1,19 @@
+{
+  "name": "ai_system",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/react": "^19.1.2",
+    "@types/recharts": "^2.0.1",
+    "lucide-react": "^0.488.0",
+    "react": "^19.1.0",
+    "recharts": "^2.15.2"
+  }
+}

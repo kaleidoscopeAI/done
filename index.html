@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Kaleidoscope - Neural Field Visualization</title>
+    
+    <!-- Include ThreeJS and related libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    
+    <!-- Include SocketIO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Include TweenJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    
+    <!-- Include DAT.GUI -->
+    <script src="https://cdn.jsdelivr.net/npm/dat.gui@0.7.9/build/dat.gui.min.js"></script>
+    
+    <!-- Custom Styles (unchanged from your input) -->
+    <style>
+        /* [Your CSS from above remains unchanged] */
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div id="loading-logo">
+            <div class="logo-center"></div>
+            <div class="logo-particle" style="animation-delay: 0s;"></div>
+            <div class="logo-particle" style="animation-delay: 0.5s;"></div>
+            <div class="logo-particle" style="animation-delay: 1s;"></div>
+            <div class="logo-particle" style="animation-delay: 1.5s;"></div>
+            <div class="logo-particle" style="animation-delay: 2s;"></div>
+            <div class="logo-particle" style="animation-delay: 2.5s;"></div>
+            <div class="logo-particle" style="animation-delay: 3s;"></div>
+            <div class="logo-particle" style="animation-delay: 3.5s;"></div>
+        </div>
+        <div id="loading-text">QUANTUM KALEIDOSCOPE</div>
+        <div class="loading-bar-container">
+            <div class="loading-bar"></div>
+        </div>
+    </div>
+    
+    <!-- Main Visualization Container -->
+    <div id="visualization-container"></div>
+    
+    <!-- Bloom Filter Layer -->
+    <div class="bloom-filter"></div>
+    
+    <!-- UI Container -->
+    <div id="ui-container">
+        <!-- Sidebar Toggle Button -->
+        <button id="sidebar-toggle">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+        </button>
+        
+        <!-- Main Sidebar -->
+        <div id="sidebar">
+            <div class="title-area">
+                <h1>Quantum Kaleidoscope</h1>
+                <p>Neural Field Visualization System</p>
+            </div>
+            
+            <div id="stats-panel">
+                <div class="stat-row">
+                    <span class="stat-label">Nodes:</span>
+                    <span class="stat-value" id="node-count">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Connections:</span>
+                    <span class="stat-value" id="connection-count">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Avg. Energy:</span>
+                    <span class="stat-value" id="avg-energy">0.00</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">FPS:</span>
+                    <span class="stat-value" id="fps">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Runtime:</span>
+                    <span class="stat-value" id="runtime">00:00:00</span>
+                </div>
+            </div>
+            
+            <div class="controls-area">
+                <h2>Neural Input</h2>
+                <textarea id="input-text" placeholder="Enter text to process through the quantum field..."></textarea>
+                <button id="process-button">Process Neural Input</button>
+            </div>
+            
+            <div class="insights-area">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20z"></path>
+                        <path d="M12 16v-4"></path>
+                        <path d="M12 8h.01"></path>
+                    </svg>
+                    Quantum Insights
+                </h2>
+                <div id="insights-container">
+                    <!-- Insights will be added here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Events Panel -->
+        <div id="events-panel">
+            <div id="events-panel-header">
+                <h3>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    System Events
+                </h3>
+                <button id="events-toggle">▲</button>
+            </div>
+            <div id="events-container">
+                <!-- Events will be added here -->
+            </div>
+        </div>
+        
+        <!-- Node Details Modal -->
+        <div id="node-details">
+            <div id="node-details-header">
+                <h3>Node Details</h3>
+                <button id="close-details">✕</button>
+            </div>
+            <div id="node-details-container">
+                <!-- Node details will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="main.js"></script>
+</body>
+</html>

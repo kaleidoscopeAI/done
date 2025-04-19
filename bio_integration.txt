@@ -1,0 +1,81 @@
+#include "bio_integration.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+
+// Error handling
+static char bi_error_buffer[256] = "No error";
+
+static void set_bio_integration_error(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsnprintf(bi_error_buffer, sizeof(bi_error_buffer), format, args);
+    va_end(args);
+    fprintf(stderr, "[Bio Integration Error] %s\n", bi_error_buffer);
+}
+
+const char* bio_integration_get_last_error(void) {
+    return bi_error_buffer;
+}
+
+
+BioIntegrationModule* init_bio_integration(const char* db_path) {
+    BioIntegrationModule* module = (BioIntegrationModule*)malloc(sizeof(BioIntegrationModule));
+    if (!module) {
+        set_bio_integration_error("Failed to allocate memory for BioIntegrationModule");
+        return NULL;
+    }
+    module->database_path = db_path ? strdup(db_path) : NULL;
+    module->similarity_threshold = 0.85; // Default threshold
+
+    printf("Bio Integration module initialized. DB Path: %s\n", db_path ? db_path : "N/A");
+    return module;
+}
+
+void destroy_bio_integration(BioIntegrationModule* module) {
+    if (module) {
+        free(module->database_path);
+        free(module);
+        printf("Bio Integration module destroyed.\n");
+    }
+}
+
+bool process_bio_data(BioIntegrationModule* module, const BioData* data) {
+    if (!module || !data || !data->sequence_data) {
+        set_bio_integration_error("Invalid arguments for process_bio_data");
+        return false;
+    }
+    printf("Processing BioData: ID=%s, Seq=%.30s...\n",
+           data->sequence_id ? data->sequence_id : "N/A", data->sequence_data);
+    // Placeholder: Add logic to store, analyze, or integrate the data
+    // e.g., add node to memory graph, compare against database
+    return true;
+}
+
+BioData** find_similar_bio_data(BioIntegrationModule* module, const char* query_sequence, uint32_t* result_count) {
+    if (!module || !query_sequence || !result_count) {
+        set_bio_integration_error("Invalid arguments for find_similar_bio_data");
+        if (result_count) *result_count = 0;
+        return NULL;
+    }
+    printf("Searching for sequences similar to: %.30s...\n", query_sequence);
+    *result_count = 0;
+    // Placeholder: Implement actual search logic (e.g., BLAST-like comparison)
+    // For now, return NULL (no results)
+    set_bio_integration_error("Similarity search not implemented");
+    return NULL;
+}
+
+void free_bio_data_results(BioData** results, uint32_t count) {
+    if (!results) return;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (results[i]) {
+            free(results[i]->sequence_id);
+            free(results[i]->sequence_data);
+            free(results[i]->metadata);
+            free(results[i]);
+        }
+    }
+    free(results);
+}

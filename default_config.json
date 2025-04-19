@@ -1,0 +1,15 @@
+{
+    "quantum": {
+        "dimension": 16,
+        "optimization_strategy": "HYBRID"
+    },
+    "system": {
+        "use_gpu": true,
+        "threads": 4
+    },
+    "visualization": {
+        "enabled": true,
+        "update_interval": 0.1,
+        "save_path": "visualizations"
+    }
+}

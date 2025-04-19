@@ -1,0 +1,91 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "resource_optimization.h"
+
+// Initialize the Resource Optimizer
+ResourceOptimizer* init_resource_optimizer(uint64_t total_energy, uint64_t max_memory) {
+    ResourceOptimizer* optimizer = (ResourceOptimizer*)malloc(sizeof(ResourceOptimizer));
+    if (!optimizer) {
+        printf("Error: Failed to allocate memory for Resource Optimizer.\n");
+        return NULL;
+    }
+
+    optimizer->total_energy = total_energy;
+    optimizer->available_energy = total_energy;
+    optimizer->max_memory = max_memory;
+    optimizer->used_memory = 0;
+
+    printf("Resource Optimizer initialized with total energy: %lu, max memory: %lu.\n",
+           total_energy, max_memory);
+    return optimizer;
+}
+
+// Optimize Energy Distribution
+void allocate_energy(ResourceOptimizer* optimizer, Node** nodes, uint64_t node_count) {
+    if (!optimizer || node_count == 0) return;
+
+    uint64_t equal_energy = optimizer->available_energy / node_count;
+    printf("Allocating energy: Each node receives %lu units.\n", equal_energy);
+
+    for (uint64_t i = 0; i < node_count; i++) {
+        if (nodes[i]) {
+            nodes[i]->energy += equal_energy;
+            optimizer->available_energy -= equal_energy;
+            printf("Node %lu energy updated to %lu.\n", nodes[i]->id, nodes[i]->energy);
+        }
+    }
+}
+
+// Optimize Memory Usage
+void allocate_memory(ResourceOptimizer* optimizer, uint64_t memory_request) {
+    if (!optimizer) return;
+
+    if (optimizer->used_memory + memory_request > optimizer->max_memory) {
+        printf("Error: Memory request of %lu exceeds available capacity.\n", memory_request);
+        return;
+    }
+
+    optimizer->used_memory += memory_request;
+    printf("Allocated %lu memory. Used memory: %lu / %lu.\n",
+           memory_request, optimizer->used_memory, optimizer->max_memory);
+}
+
+// Deallocate Memory
+void deallocate_memory(ResourceOptimizer* optimizer, uint64_t memory_release) {
+    if (!optimizer || memory_release > optimizer->used_memory) return;
+
+    optimizer->used_memory -= memory_release;
+    printf("Deallocated %lu memory. Used memory: %lu / %lu.\n",
+           memory_release, optimizer->used_memory, optimizer->max_memory);
+}
+
+// Reallocate Resources Dynamically
+void optimize_resources(ResourceOptimizer* optimizer, Node** nodes, uint64_t node_count) {
+    if (!optimizer || !nodes) return;
+
+    printf("Optimizing resources dynamically...\n");
+
+    // Energy Redistribution
+    uint64_t active_nodes = 0;
+    for (uint64_t i = 0; i < node_count; i++) {
+        if (nodes[i] && nodes[i]->is_active) active_nodes++;
+    }
+
+    if (active_nodes > 0) {
+        optimizer->available_energy = optimizer->total_energy;
+        allocate_energy(optimizer, nodes, active_nodes);
+    }
+
+    // Memory Adjustment (Example: Free 10% of used memory per cycle)
+    uint64_t memory_to_free = optimizer->used_memory / 10;
+    deallocate_memory(optimizer, memory_to_free);
+}
+
+// Cleanup Resource Optimizer
+void destroy_resource_optimizer(ResourceOptimizer* optimizer) {
+    if (optimizer) {
+        free(optimizer);
+        printf("Resource Optimizer destroyed.\n");
+    }
+}
+

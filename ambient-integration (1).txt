@@ -1,0 +1,1128 @@
+// AmbientIntegration.js - Core integration class that connects all components
+import AvatarEngine from './AvatarEngine';
+import QuantumAvatar from './QuantumAvatar';
+
+/**
+ * Ambient Integration Core
+ * 
+ * This class serves as the central coordination system for the Ambient app,
+ * connecting the context awareness, avatar system, and UI components.
+ */
+class AmbientIntegration {
+  constructor(config = {}) {
+    this.config = {
+      contextUpdateInterval: config.contextUpdateInterval || 5000, // ms
+      apiEndpoint: config.apiEndpoint || 'https://api.ambient-companion.com',
+      localStorageKey: config.localStorageKey || 'ambient_user_data',
+      avatarConfig: config.avatarConfig || {},
+      enabledSensors: config.enabledSensors || {
+        location: true,
+        motion: true,
+        time: true,
+        calendar: true,
+        weather: true,
+        ambientLight: true,
+        deviceUsage: true
+      },
+      privacySettings: config.privacySettings || {
+        storeDataLocally: true,
+        shareAnalytics: false,
+        processingLocation: 'device', // 'device' or 'cloud'
+        retentionPeriod: 30 // days
+      }
+    };
+    
+    // Initialize systems
+    this.avatarEngine = new AvatarEngine(this.config.avatarConfig);
+    this.contextData = {
+      location: null,
+      activity: null,
+      timeOfDay: this._determineTimeOfDay(),
+      deviceState: {},
+      userPreferences: {},
+      environmentalFactors: {},
+      lastUpdate: Date.now()
+    };
+    
+    // Communication channels
+    this.eventListeners = {
+      'context-update': [],
+      'avatar-state-change': [],
+      'user-interaction': [],
+      'api-response': [],
+      'connection-state-change': [],
+      'privacy-state-change': []
+    };
+    
+    // Setup update intervals
+    this.updateIntervals = {
+      context: null
+    };
+    
+    // User and session tracking
+    this.user = {
+      id: this._loadUserID(),
+      preferences: this._loadUserPreferences(),
+      history: [],
+      interactions: []
+    };
+    
+    this.connectionState = {
+      online: navigator.onLine,
+      serverConnected: false,
+      lastSync: null,
+      syncAttempts: 0
+    };
+    
+    // Initialize state
+    this.initialized = false;
+    
+    // Message queue for offline operation
+    this.messageQueue = [];
+    
+    // Pending requests tracking
+    this.pendingRequests = {};
+    
+    // API communication handlers
+    this.apiHandlers = this._initializeAPIHandlers();
+    
+    // Context processor that analyzes raw sensor data
+    this.contextProcessor = this._initializeContextProcessor();
+    
+    // Sensor adapters
+    this.sensors = this._initializeSensors();
+    
+    // Initialize network monitoring
+    this._initializeNetworkMonitoring();
+  }
+  
+  /**
+   * Initialize the integration system
+   * @returns {Promise} Initialization promise
+   */
+  async initialize() {
+    try {
+      // Load existing data
+      await this._loadPersistedData();
+      
+      // Start context updates
+      this._startContextUpdates();
+      
+      // Initialize API connection
+      await this._initializeAPIConnection();
+      
+      // Register event listeners
+      this._registerSystemEventListeners();
+      
+      this.initialized = true;
+      return { success: true };
+    } catch (error) {
+      console.error("Failed to initialize Ambient Integration:", error);
+      return { success: false, error };
+    }
+  }
+  
+  /**
+   * Process a user message and generate a response
+   * @param {string} message - User message text
+   * @param {Object} options - Processing options
+   * @returns {Promise<Object>} Response object
+   */
+  async processMessage(message, options = {}) {
+    if (!this.initialized) {
+      throw new Error("AmbientIntegration not initialized");
+    }
+    
+    // Track the interaction
+    this._trackInteraction('message', { message, options });
+    
+    // Update avatar state to "listening"
+    this.avatarEngine.startAnimation('listening');
+    this._triggerEvent('avatar-state-change', { state: 'listening' });
+    
+    try {
+      // Process message with current context
+      const currentContext = this.getCurrentContext();
+      
+      // Prepare request
+      const request = {
+        message,
+        context: currentContext,
+        user: {
+          id: this.user.id,
+          preferences: this.user.preferences
+        },
+        options
+      };
+      
+      // Generate request ID
+      const requestId = this._generateRequestId();
+      this.pendingRequests[requestId] = { timestamp: Date.now(), request };
+      
+      // Start thinking animation
+      this.avatarEngine.startAnimation('thinking');
+      this._triggerEvent('avatar-state-change', { state: 'thinking' });
+      
+      // Process request (locally or via API)
+      let response;
+      if (this.config.privacySettings.processingLocation === 'device') {
+        response = await this._processMessageLocally(request);
+      } else {
+        response = await this._processMessageViaAPI(request, requestId);
+      }
+      
+      // Update avatar state based on response
+      const responseAnalysis = this._analyzeResponse(response);
+      this.avatarEngine.startAnimation(responseAnalysis.animationType);
+      this._triggerEvent('avatar-state-change', { 
+        state: responseAnalysis.animationType,
+        mood: responseAnalysis.mood
+      });
+      
+      // Clean up pending request
+      delete this.pendingRequests[requestId];
+      
+      return response;
+    } catch (error) {
+      console.error("Error processing message:", error);
+      
+      // Reset avatar state
+      this.avatarEngine.startAnimation('concerned');
+      this._triggerEvent('avatar-state-change', { state: 'concerned' });
+      
+      throw error;
+    }
+  }
+  
+  /**
+   * Register event listener
+   * @param {string} eventType - Type of event
+   * @param {Function} callback - Callback function
+   * @returns {Function} Function to remove listener
+   */
+  on(eventType, callback) {
+    if (!this.eventListeners[eventType]) {
+      this.eventListeners[eventType] = [];
+    }
+    
+    this.eventListeners[eventType].push(callback);
+    
+    // Return function to remove listener
+    return () => {
+      this.eventListeners[eventType] = this.eventListeners[eventType]
+        .filter(cb => cb !== callback);
+    };
+  }
+  
+  /**
+   * Get current context data
+   * @returns {Object} Current context
+   */
+  getCurrentContext() {
+    // Get latest sensor data and process it
+    this._updateContextFromSensors();
+    
+    return {
+      ...this.contextData,
+      lastUpdate: Date.now()
+    };
+  }
+  
+  /**
+   * Update user preferences
+   * @param {Object} preferences - New preferences
+   * @returns {Object} Updated preferences
+   */
+  updateUserPreferences(preferences) {
+    this.user.preferences = {
+      ...this.user.preferences,
+      ...preferences
+    };
+    
+    // Persist preferences
+    this._saveUserPreferences(this.user.preferences);
+    
+    // Update avatar configuration based on preferences
+    if (preferences.avatarStyle) {
+      this.avatarEngine.updateConfig({
+        personalityType: preferences.avatarStyle
+      });
+    }
+    
+    return this.user.preferences;
+  }
+  
+  /**
+   * Set privacy settings
+   * @param {Object} settings - New privacy settings
+   * @returns {Object} Updated settings
+   */
+  updatePrivacySettings(settings) {
+    this.config.privacySettings = {
+      ...this.config.privacySettings,
+      ...settings
+    };
+    
+    // Trigger privacy state change event
+    this._triggerEvent('privacy-state-change', {
+      settings: this.config.privacySettings
+    });
+    
+    // Persist privacy settings
+    this._persistSettings();
+    
+    return this.config.privacySettings;
+  }
+  
+  /**
+   * Get avatar state
+   * @returns {Object} Current avatar state
+   */
+  getAvatarState() {
+    return this.avatarEngine.getState();
+  }
+  
+  /**
+   * Start a specific avatar animation
+   * @param {string} animationType - Type of animation
+   * @returns {Object} Animation details
+   */
+  triggerAvatarAnimation(animationType) {
+    return this.avatarEngine.startAnimation(animationType);
+  }
+  
+  /**
+   * Cleanup and disconnect
+   */
+  disconnect() {
+    // Stop context updates
+    clearInterval(this.updateIntervals.context);
+    
+    // Persist any unsaved data
+    this._persistData();
+    
+    // Clear event listeners
+    Object.keys(this.eventListeners).forEach(key => {
+      this.eventListeners[key] = [];
+    });
+    
+    this.initialized = false;
+  }
+  
+  // Private methods
+  
+  /**
+   * Initialize API handlers
+   * @private
+   */
+  _initializeAPIHandlers() {
+    return {
+      // Send a request to the API
+      sendRequest: async (endpoint, data) => {
+        if (!this.connectionState.online) {
+          // Queue for later if offline
+          this.messageQueue.push({ endpoint, data, timestamp: Date.now() });
+          throw new Error("Device is offline, request queued");
+        }
+        
+        try {
+          const response = await fetch(`${this.config.apiEndpoint}/${endpoint}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Ambient-User-ID': this.user.id
+            },
+            body: JSON.stringify(data)
+          });
+          
+          if (!response.ok) {
+            throw new Error(`API error: ${response.status} ${response.statusText}`);
+          }
+          
+          const responseData = await response.json();
+          this._triggerEvent('api-response', { endpoint, response: responseData });
+          
+          // Update connection state
+          this.connectionState.serverConnected = true;
+          this.connectionState.lastSync = Date.now();
+          this._triggerEvent('connection-state-change', this.connectionState);
+          
+          return responseData;
+        } catch (error) {
+          // Handle connection errors
+          this.connectionState.serverConnected = false;
+          this.connectionState.syncAttempts += 1;
+          this._triggerEvent('connection-state-change', this.connectionState);
+          
+          console.error(`API request error to ${endpoint}:`, error);
+          throw error;
+        }
+      },
+      
+      // Process any queued messages when coming back online
+      processQueue: async () => {
+        if (!this.connectionState.online || this.messageQueue.length === 0) {
+          return { processed: 0 };
+        }
+        
+        const queue = [...this.messageQueue];
+        this.messageQueue = [];
+        
+        let successCount = 0;
+        
+        for (const item of queue) {
+          try {
+            await this.apiHandlers.sendRequest(item.endpoint, item.data);
+            successCount++;
+          } catch (error) {
+            // Re-queue failed items
+            this.messageQueue.push(item);
+          }
+        }
+        
+        return { 
+          processed: successCount,
+          remaining: this.messageQueue.length
+        };
+      }
+    };
+  }
+  
+  /**
+   * Initialize context processor
+   * @private
+   */
+  _initializeContextProcessor() {
+    return {
+      // Process location data
+      processLocation: (locationData) => {
+        if (!locationData) return null;
+        
+        // Determine location type
+        let locationType = 'unknown';
+        
+        if (locationData.coords) {
+          // Use coordinates to determine location type
+          // In a real app, this would use a location service
+          
+          // For now, just use simple logic based on time
+          const hour = new Date().getHours();
+          if (hour >= 9 && hour < 17) {
+            locationType = 'work';
+          } else {
+            locationType = 'home';
+          }
+        }
+        
+        return {
+          type: locationType,
+          coordinates: locationData.coords ? {
+            latitude: locationData.coords.latitude,
+            longitude: locationData.coords.longitude,
+            accuracy: locationData.coords.accuracy
+          } : null,
+          timestamp: locationData.timestamp || Date.now()
+        };
+      },
+      
+      // Process motion/activity data
+      processActivity: (motionData) => {
+        if (!motionData) return 'unknown';
+        
+        // Simple activity detection based on motion patterns
+        // In a real app, this would use more sophisticated algorithms
+        
+        if (motionData.acceleration && motionData.acceleration > 10) {
+          return 'exercising';
+        } else if (motionData.acceleration && motionData.acceleration > 2) {
+          return 'walking';
+        } else if (motionData.stationary) {
+          return 'sitting';
+        }
+        
+        return 'unknown';
+      },
+      
+      // Process calendar data for time context
+      processCalendar: (calendarData) => {
+        if (!calendarData) return {};
+        
+        // Extract upcoming meetings, events, etc.
+        return {
+          upcomingEvents: calendarData.events || [],
+          busyUntil: calendarData.busyUntil || null,
+          currentEvent: calendarData.currentEvent || null
+        };
+      },
+      
+      // Analyze full context for higher-level insights
+      analyzeContext: (context) => {
+        // Derive higher-level context from raw data
+        // In a real app, this might use more sophisticated AI models
+        
+        const timeContext = context.timeOfDay;
+        const activity = context.activity;
+        const location = context.location ? context.location.type : 'unknown';
+        
+        // Determine user state
+        let userState = 'neutral';
+        
+        if (timeContext === 'night') {
+          userState = 'relaxing';
+        } else if (timeContext === 'morning' && activity === 'commuting') {
+          userState = 'busy';
+        } else if (location === 'work' && activity === 'sitting') {
+          userState = 'working';
+        } else if (activity === 'exercising') {
+          userState = 'active';
+        }
+        
+        return {
+          userState,
+          inMeeting: (context.calendar && context.calendar.currentEvent) ? true : false,
+          interruptible: userState !== 'busy' && userState !== 'working',
+          energyLevel: activity === 'exercising' ? 'high' : 
+                      (timeContext === 'night' ? 'low' : 'medium')
+        };
+      }
+    };
+  }
+  
+  /**
+   * Initialize sensors
+   * @private
+   */
+  _initializeSensors() {
+    // In a real app, these would connect to actual device sensors
+    return {
+      location: {
+        enabled: this.config.enabledSensors.location,
+        getData: async () => {
+          if (!this.config.enabledSensors.location) return null;
+          
+          // Mock location data for demonstration
+          return {
+            coords: {
+              latitude: 37.7749,
+              longitude: -122.4194,
+              accuracy: 10
+            },
+            timestamp: Date.now()
+          };
+        }
+      },
+      
+      motion: {
+        enabled: this.config.enabledSensors.motion,
+        getData: async () => {
+          if (!this.config.enabledSensors.motion) return null;
+          
+          // Mock motion data
+          return {
+            acceleration: Math.random() * 5,
+            stationary: Math.random() > 0.7,
+            timestamp: Date.now()
+          };
+        }
+      },
+      
+      calendar: {
+        enabled: this.config.enabledSensors.calendar,
+        getData: async () => {
+          if (!this.config.enabledSensors.calendar) return null;
+          
+          // Mock calendar data
+          const now = new Date();
+          const tomorrow = new Date(now);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          
+          return {
+            events: [
+              {
+                title: 'Team Meeting',
+                start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0),
+                end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 15, 0)
+              },
+              {
+                title: 'Project Deadline',
+                start: tomorrow,
+                end: tomorrow
+              }
+            ],
+            currentEvent: null,
+            busyUntil: null
+          };
+        }
+      },
+      
+      weather: {
+        enabled: this.config.enabledSensors.weather,
+        getData: async () => {
+          if (!this.config.enabledSensors.weather) return null;
+          
+          // Mock weather data
+          return {
+            temperature: 72,
+            conditions: 'clear',
+            forecast: {
+              tomorrow: 'sunny',
+              nextDay: 'partly cloudy'
+            },
+            timestamp: Date.now()
+          };
+        }
+      },
+      
+      // Ambient light sensor
+      ambientLight: {
+        enabled: this.config.enabledSensors.ambientLight,
+        getData: async () => {
+          if (!this.config.enabledSensors.ambientLight) return null;
+          
+          // Mock ambient light data
+          const hour = new Date().getHours();
+          let lightLevel;
+          
+          if (hour >= 22 || hour < 6) {
+            lightLevel = 5; // Dark
+          } else if (hour >= 8 && hour < 18) {
+            lightLevel = 95; // Bright daylight
+          } else {
+            lightLevel = 50; // Medium light
+          }
+          
+          return {
+            level: lightLevel,
+            isDark: lightLevel < 20,
+            timestamp: Date.now()
+          };
+        }
+      },
+      
+      // Device usage patterns
+      deviceUsage: {
+        enabled: this.config.enabledSensors.deviceUsage,
+        getData: async () => {
+          if (!this.config.enabledSensors.deviceUsage) return null;
+          
+          // Mock device usage data
+          return {
+            screenTime: Math.floor(Math.random() * 120), // minutes
+            appUsage: {
+              social: Math.floor(Math.random() * 45),
+              productivity: Math.floor(Math.random() * 60),
+              entertainment: Math.floor(Math.random() * 30)
+            },
+            notificationFrequency: Math.floor(Math.random() * 10), // per hour
+            timestamp: Date.now()
+          };
+        }
+      }
+    };
+  }
+  
+  /**
+   * Initialize network monitoring
+   * @private
+   */
+  _initializeNetworkMonitoring() {
+    // Monitor online/offline status
+    window.addEventListener('online', () => {
+      this.connectionState.online = true;
+      this._triggerEvent('connection-state-change', this.connectionState);
+      
+      // Process queued messages
+      this.apiHandlers.processQueue();
+    });
+    
+    window.addEventListener('offline', () => {
+      this.connectionState.online = false;
+      this.connectionState.serverConnected = false;
+      this._triggerEvent('connection-state-change', this.connectionState);
+    });
+  }
+  
+  /**
+   * Start context update interval
+   * @private
+   */
+  _startContextUpdates() {
+    // Clear any existing interval
+    if (this.updateIntervals.context) {
+      clearInterval(this.updateIntervals.context);
+    }
+    
+    // Set interval for context updates
+    this.updateIntervals.context = setInterval(() => {
+      this._updateContextFromSensors();
+    }, this.config.contextUpdateInterval);
+    
+    // Trigger initial update
+    this._updateContextFromSensors();
+  }
+  
+  /**
+   * Update context data from sensors
+   * @private
+   */
+  async _updateContextFromSensors() {
+    try {
+      // Get data from enabled sensors
+      const locationData = this.config.enabledSensors.location ? 
+        await this.sensors.location.getData() : null;
+      
+      const motionData = this.config.enabledSensors.motion ?
+        await this.sensors.motion.getData() : null;
+      
+      const calendarData = this.config.enabledSensors.calendar ?
+        await this.sensors.calendar.getData() : null;
+      
+      const weatherData = this.config.enabledSensors.weather ?
+        await this.sensors.weather.getData() : null;
+      
+      const lightData = this.config.enabledSensors.ambientLight ?
+        await this.sensors.ambientLight.getData() : null;
+      
+      const usageData = this.config.enabledSensors.deviceUsage ?
+        await this.sensors.deviceUsage.getData() : null;
+      
+      // Process raw sensor data
+      this.contextData.location = this.contextProcessor.processLocation(locationData);
+      this.contextData.activity = this.contextProcessor.processActivity(motionData);
+      this.contextData.timeOfDay = this._determineTimeOfDay();
+      this.contextData.calendar = this.contextProcessor.processCalendar(calendarData);
+      this.contextData.weather = weatherData;
+      this.contextData.ambientLight = lightData;
+      this.contextData.deviceUsage = usageData;
+      this.contextData.lastUpdate = Date.now();
+      
+      // Analyze for higher-level context
+      const analysis = this.contextProcessor.analyzeContext(this.contextData);
+      this.contextData.analysis = analysis;
+      
+      // Update avatar state based on context
+      this._updateAvatarFromContext();
+      
+      // Trigger context update event
+      this._triggerEvent('context-update', this.contextData);
+      
+      return this.contextData;
+    } catch (error) {
+      console.error("Error updating context from sensors:", error);
+      return this.contextData;
+    }
+  }
+  
+  /**
+   * Update avatar state based on context
+   * @private
+   */
+  _updateAvatarFromContext() {
+    const context = this.contextData;
+    const analysis = context.analysis || {};
+    
+    // Map context to avatar state
+    let mood = 'neutral';
+    let energy = 'medium';
+    
+    if (analysis.userState === 'busy') {
+      mood = 'focused';
+    } else if (analysis.userState === 'relaxing') {
+      mood = 'positive';
+      energy = 'low';
+    } else if (analysis.userState === 'active') {
+      mood = 'excited';
+      energy = 'high';
+    } else if (analysis.userState === 'working') {
+      mood = 'focused';
+      energy = 'medium-high';
+    }
+    
+    // Update avatar
+    this.avatarEngine.setMood(mood);
+    this.avatarEngine.setEnergy(energy);
+    
+    // If in a meeting, make avatar more subdued
+    if (analysis.inMeeting) {
+      this.avatarEngine.setEnergy('low');
+    }
+    
+    return { mood, energy };
+  }
+  
+  /**
+   * Determine time of day
+   * @private
+   */
+  _determineTimeOfDay() {
+    const hour = new Date().getHours();
+    
+    if (hour >= 5 && hour < 12) {
+      return 'morning';
+    } else if (hour >= 12 && hour < 17) {
+      return 'afternoon';
+    } else if (hour >= 17 && hour < 22) {
+      return 'evening';
+    } else {
+      return 'night';
+    }
+  }
+  
+  /**
+   * Load user ID from storage
+   * @private
+   */
+  _loadUserID() {
+    try {
+      // Check localStorage first
+      const storedUserID = localStorage.getItem(`${this.config.localStorageKey}_user_id`);
+      
+      if (storedUserID) {
+        return storedUserID;
+      }
+      
+      // Generate new ID if not found
+      const newUserID = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem(`${this.config.localStorageKey}_user_id`, newUserID);
+      
+      return newUserID;
+    } catch (error) {
+      // Fallback to memory-only ID if localStorage not available
+      console.warn("Could not access localStorage, using in-memory user ID");
+      return 'temp_user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    }
+  }
+  
+  /**
+   * Load user preferences from storage
+   * @private
+   */
+  _loadUserPreferences() {
+    try {
+      const storedPrefs = localStorage.getItem(`${this.config.localStorageKey}_preferences`);
+      
+      if (storedPrefs) {
+        return JSON.parse(storedPrefs);
+      }
+      
+      // Default preferences
+      return {
+        theme: 'auto',
+        avatarStyle: 'balanced',
+        notificationLevel: 'medium',
+        dataProcessingLocation: 'device'
+      };
+    } catch (error) {
+      console.warn("Could not load user preferences, using defaults");
+      return {
+        theme: 'auto',
+        avatarStyle: 'balanced',
+        notificationLevel: 'medium',
+        dataProcessingLocation: 'device'
+      };
+    }
+  }
+  
+  /**
+   * Save user preferences to storage
+   * @private
+   */
+  _saveUserPreferences(preferences) {
+    try {
+      localStorage.setItem(
+        `${this.config.localStorageKey}_preferences`, 
+        JSON.stringify(preferences)
+      );
+      return true;
+    } catch (error) {
+      console.error("Could not save user preferences:", error);
+      return false;
+    }
+  }
+  
+  /**
+   * Register system event listeners
+   * @private
+   */
+  _registerSystemEventListeners() {
+    // Listen for visibility changes
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        // App came back to foreground, update context
+        this._updateContextFromSensors();
+      }
+    });
+    
+    // Listen for device orientation changes
+    window.addEventListener('orientationchange', () => {
+      // Update context when orientation changes
+      setTimeout(() => {
+        this._updateContextFromSensors();
+      }, 500);
+    });
+  }
+  
+  /**
+   * Process a message locally (on-device)
+   * @private
+   */
+  async _processMessageLocally(request) {
+    // In a real app, this would use an on-device AI model
+    // For now, we'll use a simple rule-based approach
+    
+    const message = request.message.toLowerCase();
+    const context = request.context;
+    
+    // Start with a basic response
+    let response = {
+      text: "I'm here to help!",
+      type: "text",
+      context: {
+        used: true,
+        timeOfDay: context.timeOfDay,
+        location: context.location ? context.location.type : null,
+        activity: context.activity
+      }
+    };
+    
+    // Simple NLP to determine intent
+    if (message.includes('hello') || message.includes('hi ') || message === 'hi') {
+      response.text = `Hello! Good ${context.timeOfDay}. How can I help you today?`;
+    }
+    else if (message.includes('weather')) {
+      if (context.weather) {
+        response.text = `It's currently ${context.weather.temperature}°F and ${context.weather.conditions}.`;
+      } else {
+        response.text = "I don't have current weather information available.";
+      }
+    }
+    else if (message.includes('time')) {
+      const now = new Date();
+      response.text = `It's ${now.toLocaleTimeString()}.`;
+    }
+    else if (message.includes('meeting') || message.includes('calendar')) {
+      if (context.calendar && context.calendar.upcomingEvents.length > 0) {
+        const nextEvent = context.calendar.upcomingEvents[0];
+        response.text = `Your next meeting is "${nextEvent.title}" at ${nextEvent.start.toLocaleTimeString()}.`;
+      } else {
+        response.text = "You don't have any upcoming meetings scheduled.";
+      }
+    }
+    else if (message.includes('location') || message.includes('where am i')) {
+      if (context.location) {
+        response.text = `You appear to be at ${context.location.type}.`;
+      } else {
+        response.text = "I'm not sure of your current location.";
+      }
+    }
+    else if (message.includes('doing') || message.includes('activity')) {
+      if (context.activity) {
+        response.text = `You seem to be ${context.activity}.`;
+      } else {
+        response.text = "I'm not sure what you're currently doing.";
+      }
+    }
+    
+    // Add context-awareness to response
+    if (context.timeOfDay === 'night') {
+      response.text += " By the way, it's getting late. Would you like me to enable night mode?";
+    } else if (context.analysis && context.analysis.inMeeting) {
+      response.text += " I notice you might be in a meeting. Would you like me to keep notifications silenced?";
+    }
+    
+    // Simulate processing delay for realism
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    return response;
+  }
+  
+  /**
+   * Process a message via API
+   * @private
+   */
+  async _processMessageViaAPI(request, requestId) {
+    if (!this.connectionState.online) {
+      // If offline, queue for later and process locally for now
+      this.messageQueue.push({
+        endpoint: 'process-message',
+        data: request,
+        timestamp: Date.now(),
+        requestId
+      });
+      
+      return this._processMessageLocally(request);
+    }
+    
+    try {
+      // Send to API
+      const response = await this.apiHandlers.sendRequest('process-message', request);
+      return response;
+    } catch (error) {
+      console.error("API processing error:", error);
+      
+      // Fallback to local processing
+      return this._processMessageLocally(request);
+    }
+  }
+  
+  /**
+   * Analyze a response to determine appropriate avatar state
+   * @private
+   */
+  _analyzeResponse(response) {
+    // Detect mood and energy from response
+    let mood = 'neutral';
+    let animationType = 'speaking';
+    
+    // Simple sentiment analysis on response text
+    const text = response.text.toLowerCase();
+    
+    if (text.includes('sorry') || text.includes('error') || text.includes('cannot')) {
+      mood = 'concerned';
+      animationType = 'concerned';
+    }
+    else if (text.includes('great') || text.includes('excellent') || text.includes('happy') || 
+             text.includes('good news') || text.includes('awesome')) {
+      mood = 'happy';
+      animationType = 'happy';
+    }
+    else if (text.includes('let me think') || text.includes('interesting question') ||
+             text.includes('searching') || text.includes('calculating')) {
+      mood = 'thoughtful';
+      animationType = 'thinking';
+    }
+    else if (text.includes('working on') || text.includes('processing') ||
+             text.includes('analyzing') || text.includes('preparing')) {
+      mood = 'focused';
+      animationType = 'working';
+    }
+    
+    return { mood, animationType };
+  }
+  
+  /**
+   * Track user interaction
+   * @private
+   */
+  _trackInteraction(type, data) {
+    const interaction = {
+      type,
+      data,
+      timestamp: Date.now(),
+      context: { ...this.contextData }
+    };
+    
+    // Add to history
+    this.user.interactions.push(interaction);
+    
+    // Trim history if too long
+    if (this.user.interactions.length > 100) {
+      this.user.interactions = this.user.interactions.slice(-100);
+    }
+    
+    // Trigger event
+    this._triggerEvent('user-interaction', interaction);
+    
+    return interaction;
+  }
+  
+  /**
+   * Generate a unique request ID
+   * @private
+   */
+  _generateRequestId() {
+    return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+  
+  /**
+   * Trigger an event
+   * @private
+   */
+  _triggerEvent(eventType, data) {
+    if (!this.eventListeners[eventType]) return;
+    
+    this.eventListeners[eventType].forEach(callback => {
+      try {
+        callback(data);
+      } catch (error) {
+        console.error(`Error in ${eventType} event listener:`, error);
+      }
+    });
+  }
+  
+  /**
+   * Load persisted data
+   * @private
+   */
+  async _loadPersistedData() {
+    // Load any additional persisted data
+    // Implementation depends on app requirements
+  }
+  
+  /**
+   * Initialize API connection
+   * @private
+   */
+  async _initializeAPIConnection() {
+    // Initialize API connection if online
+    if (navigator.onLine) {
+      try {
+        const response = await this.apiHandlers.sendRequest('initialize', {
+          userId: this.user.id,
+          deviceInfo: {
+            platform: navigator.platform,
+            userAgent: navigator.userAgent,
+            language: navigator.language
+          }
+        });
+        
+        this.connectionState.serverConnected = true;
+        this.connectionState.lastSync = Date.now();
+        this._triggerEvent('connection-state-change', this.connectionState);
+        
+        return response;
+      } catch (error) {
+        console.error("API initialization error:", error);
+        
+        this.connectionState.serverConnected = false;
+        this._triggerEvent('connection-state-change', this.connectionState);
+      }
+    }
+    
+    return { success: navigator.onLine };
+  }
+  
+  /**
+   * Persist data to storage
+   * @private
+   */
+  _persistData() {
+    // Persist user data and preferences
+    this._saveUserPreferences(this.user.preferences);
+    
+    // Persist other settings
+    this._persistSettings();
+  }
+  
+  /**
+   * Persist settings to storage
+   * @private
+   */
+  _persistSettings() {
+    try {
+      localStorage.setItem(
+        `${this.config.localStorageKey}_settings`,
+        JSON.stringify({
+          privacySettings: this.config.privacySettings,
+          enabledSensors: this.config.enabledSensors
+        })
+      );
+      return true;
+    } catch (error) {
+      console.error("Could not save settings:", error);
+      return false;
+    }
+  }
+}
+
+export default AmbientIntegration;
