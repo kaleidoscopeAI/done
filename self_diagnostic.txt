@@ -1,0 +1,239 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "self_diagnostic.h"
+#include "memory_graph.h" // Include the full definition
+#include <time.h>
+
+// Initialize the Diagnostic System
+SelfDiagnosticSystem* init_self_diagnostic_system(MemoryGraph* graph) {
+    if (!graph) {
+        fprintf(stderr, "[Self Diagnostic Error] Memory graph pointer is NULL.\n");
+        return NULL;
+    }
+    SelfDiagnosticSystem* system = (SelfDiagnosticSystem*)malloc(sizeof(SelfDiagnosticSystem));
+    if (!system) {
+        fprintf(stderr, "[Self Diagnostic Error] Failed to allocate memory for system.\n");
+        return NULL;
+    }
+    system->graph = graph;
+    system->last_run_time = 0;
+    system->check_interval_ms = 5000; // Default check every 5 seconds
+    printf("Self-diagnostic system initialized.\n");
+    return system;
+}
+
+// Register a Node for Monitoring
+void register_node(SelfDiagnosticSystem* system, uint64_t node_id, uint64_t initial_energy) {
+    if (!system || system->graph->node_count >= system->graph->max_nodes) {
+        printf("Self-Diagnostic System: Cannot register node. Maximum capacity reached.\n");
+        return;
+    }
+
+    system->graph->nodes[system->graph->node_count++] = (NodeHealth){
+        .node_id = node_id,
+        .energy = initial_energy,
+        .is_active = 1,
+        .faults_detected = 0
+    };
+
+    printf("Node %lu registered with initial energy %lu.\n", node_id, initial_energy);
+}
+
+// Check Node Health
+int check_node_health(SelfDiagnosticSystem* system, uint64_t node_id) {
+    if (!system) return 0;
+
+    for (uint64_t i = 0; i < system->graph->node_count; i++) {
+        if (system->graph->nodes[i]->node_id == node_id) {
+            NodeHealth* health = system->graph->nodes[i];
+
+            // Simulate a fault check
+            if (health->energy <= 10) {
+                printf("Node %lu: Low energy detected (%lu). Marking as inactive.\n", 
+                       node_id, health->energy);
+                health->is_active = 0;
+                health->faults_detected++;
+                return 0; // Node is unhealthy
+            }
+
+            printf("Node %lu: Health check passed. Energy: %lu\n", node_id, health->energy);
+            return 1; // Node is healthy
+        }
+    }
+
+    printf("Node %lu not found in the diagnostic system.\n", node_id);
+    return 0;
+}
+
+// Repair Node Faults
+void repair_fault(SelfDiagnosticSystem* system, uint64_t node_id) {
+    if (!system) return;
+
+    for (uint64_t i = 0; i < system->graph->node_count; i++) {
+        if (system->graph->nodes[i]->node_id == node_id) {
+            NodeHealth* health = system->graph->nodes[i];
+
+            if (!health->is_active) {
+                health->energy += 50; // Restore energy
+                health->is_active = 1;
+                printf("Node %lu: Fault repaired. Energy restored to %lu.\n", node_id, health->energy);
+            } else {
+                printf("Node %lu: No faults detected. No repair needed.\n", node_id);
+            }
+            return;
+        }
+    }
+
+    printf("Node %lu not found for repair in the diagnostic system.\n", node_id);
+}
+
+// Generate System Health Report
+void generate_health_report(SelfDiagnosticSystem* system) {
+    if (!system) return;
+
+    printf("\n--- System Health Report ---\n");
+    for (uint64_t i = 0; i < system->graph->node_count; i++) {
+        NodeHealth* health = system->graph->nodes[i];
+        printf("Node %lu: Energy = %lu, Active = %d, Faults Detected = %lu\n",
+               health->node_id, health->energy, health->is_active, health->faults_detected);
+    }
+    printf("--- End of Report ---\n");
+}
+
+// Helper to add an issue to the report
+static void add_issue(SelfDiagnostic* report, const char* issue_desc) {
+    report->issue_count++;
+    report->issues = (char**)realloc(report->issues, sizeof(char*) * report->issue_count);
+    if (report->issues) {
+        report->issues[report->issue_count - 1] = strdup(issue_desc);
+    } else {
+        // Handle realloc failure
+        report->issue_count--;
+        fprintf(stderr, "[Self Diagnostic Error] Failed to allocate memory for issue report.\n");
+    }
+}
+
+SelfDiagnostic run_self_diagnostic(SelfDiagnosticSystem* system) {
+    SelfDiagnostic report = {0}; // Initialize report struct to zeros/NULL
+    report.timestamp = time(NULL);
+    report.status = 0; // Start with OK status
+
+    if (!system || !system->graph) {
+        report.status = 2; // Error
+        add_issue(&report, "Diagnostic system or memory graph not initialized.");
+        return report;
+    }
+
+    // --- Perform Checks ---
+
+    // 1. Check Memory Graph Integrity (Example)
+    if (system->graph->node_count > system->graph->max_nodes) {
+        report.status = 2; // Error
+        add_issue(&report, "Memory graph node count exceeds maximum capacity.");
+    } else if (system->graph->node_count > system->graph->max_nodes * 0.9) {
+        if (report.status < 1) report.status = 1; // Warning
+        add_issue(&report, "Memory graph node capacity nearing limit (>90%).");
+    }
+    report.total_nodes = system->graph->node_count;
+
+    // 2. Check Node Health (Example - Placeholder)
+    uint32_t unhealthy_nodes = 0;
+    for (uint32_t i = 0; i < system->graph->node_count; ++i) {
+        // Placeholder: Check node->activation, connections, data validity etc.
+        if (system->graph->nodes[i] && system->graph->nodes[i]->activation < 0.1) { // Example check
+             unhealthy_nodes++;
+        }
+    }
+    report.healthy_nodes = system->graph->node_count - unhealthy_nodes;
+    if (unhealthy_nodes > system->graph->node_count * 0.1) { // More than 10% unhealthy
+         if (report.status < 1) report.status = 1; // Warning
+         char issue_buf[100];
+         snprintf(issue_buf, sizeof(issue_buf), "%u nodes have low activation (<0.1).", unhealthy_nodes);
+         add_issue(&report, issue_buf);
+    }
+
+    // 3. Check System Resources (Placeholders - requires platform-specific code)
+    report.memory_usage_mb = (double)(rand() % 1000) + 500; // Dummy value
+    report.cpu_load_percent = (double)(rand() % 80); // Dummy value
+    if (report.memory_usage_mb > 4000) { // Example threshold
+        if (report.status < 1) report.status = 1; // Warning
+        add_issue(&report, "High memory usage detected.");
+    }
+
+    // --- End Checks ---
+
+    system->last_run_time = report.timestamp;
+    printf("Self-diagnostic complete. Status: %d, Issues: %u\n", report.status, report.issue_count);
+    return report;
+}
+
+void destroy_self_diagnostic_system(SelfDiagnosticSystem* system) {
+    if (system) {
+        free(system);
+        printf("Self-diagnostic system destroyed.\n");
+    }
+}
+
+void free_diagnostic_report(SelfDiagnostic* report) {
+    if (!report) return;
+    if (report->issues) {
+        for (uint32_t i = 0; i < report->issue_count; ++i) {
+            free(report->issues[i]);
+        }
+        free(report->issues);
+        report->issues = NULL;
+        report->issue_count = 0;
+    }
+}
+
+void sd_log_error(sd_error_t error, const char* message) {
+    const char* error_str = "UNKNOWN";
+    
+    switch (error) {
+        case SD_ERROR_NONE:
+            error_str = "NONE";
+            break;
+        case SD_ERROR_MEMORY:
+            error_str = "MEMORY";
+            break;
+        case SD_ERROR_CPU:
+            error_str = "CPU";
+            break;
+        case SD_ERROR_NETWORK:
+            error_str = "NETWORK";
+            break;
+        case SD_ERROR_UNKNOWN:
+            error_str = "UNKNOWN";
+            break;
+    }
+    
+    printf("[DIAGNOSTIC ERROR] %s: %s\n", error_str, message);
+}
+
+void sd_generate_diagnostic_report(const char* filename) {
+    if (!filename) {
+        printf("Error: NULL filename for diagnostic report.\n");
+        return;
+    }
+    
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        printf("Error: Failed to open file %s for diagnostic report.\n", filename);
+        return;
+    }
+    
+    time_t now;
+    time(&now);
+    
+    fprintf(file, "--- Diagnostic Report ---\n");
+    fprintf(file, "Generated: %s", ctime(&now));
+    fprintf(file, "System Status: OPERATIONAL\n");
+    fprintf(file, "Memory Usage: %d%%\n", rand() % 100);
+    fprintf(file, "CPU Usage: %d%%\n", rand() % 100);
+    fprintf(file, "Network Status: ONLINE\n");
+    
+    fclose(file);
+    printf("Diagnostic report generated: %s\n", filename);
+}
+

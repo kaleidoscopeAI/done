@@ -1,0 +1,192 @@
+#include "python_to_c_bridge.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+#include "mock_jansson.h"  // Replace with actual jansson.h in production
+#include "bridge_adapter.h"
+
+// Set error in bridge
+static void set_bridge_error(PythonToCBridge* bridge, BridgeStatus status, const char* format, ...) {
+    if (!bridge) return;
+    
+    bridge->status = status;
+    
+    va_list args;
+    va_start(args, format);
+    vsnprintf(bridge->last_error, sizeof(bridge->last_error), format, args);
+    va_end(args);
+    
+    fprintf(stderr, "[Bridge Error] %s\n", bridge->last_error);
+}
+
+// Helper to convert string ID to uint64_t
+static uint64_t string_to_node_id(const char* str_id) {
+    if (!str_id || str_id[0] == '\0') {
+        return 0;  // Invalid ID
+    }
+    
+    // Try to convert string directly to integer
+    char* end;
+    uint64_t id = strtoull(str_id, &end, 10);
+    
+    // If conversion succeeded and we reached the end of the string
+    if (*end == '\0') {
+        return id;
+    } else {
+        // If not an integer, use hash of string as ID
+        // This is a simple hash function for demonstration
+        uint64_t hash = 5381;
+        int c;
+        
+        while ((c = *str_id++)) {
+            hash = ((hash << 5) + hash) + c; // hash * 33 + c
+        }
+        
+        return hash & 0xFFFFFFFFFFFFFFFF;  // Ensure it fits in uint64_t
+    }
+}
+
+// Helper to convert string node type to NodeType enum
+static NodeType string_to_node_type(const char* str_type) {
+    if (!str_type) {
+        return NODE_TYPE_STANDARD;  // Default
+    }
+    
+    if (strcmp(str_type, "core") == 0) {
+        return NODE_TYPE_CORE;
+    } else if (strcmp(str_type, "memory") == 0) {
+        return NODE_TYPE_MEMORY;
+    } else if (strcmp(str_type, "processing") == 0) {
+        return NODE_TYPE_PROCESSING;
+    } else if (strcmp(str_type, "custom") == 0) {
+        return NODE_TYPE_CUSTOM;
+    } else {
+        return NODE_TYPE_STANDARD;  // Default
+    }
+}
+
+// Initialize bridge
+PythonToCBridge* init_python_to_c_bridge(NodeManager* node_manager, MemoryGraph* memory_graph) {
+    if (!node_manager || !memory_graph) {
+        fprintf(stderr, "Invalid parameters for bridge initialization\n");
+        return NULL;
+    }
+    
+    PythonToCBridge* bridge = (PythonToCBridge*)malloc(sizeof(PythonToCBridge));
+    if (!bridge) {
+        fprintf(stderr, "Failed to allocate memory for bridge\n");
+        return NULL;
+    }
+    
+    bridge->node_manager = node_manager;
+    bridge->memory_graph = memory_graph;
+    bridge->status = BRIDGE_STATUS_OK;
+    strcpy(bridge->last_error, "No error");
+    
+    printf("Python to C bridge initialized\n");
+    return bridge;
+}
+
+// Create node
+BridgeStatus bridge_create_managed_node(PythonToCBridge* bridge, const char* node_id_str, 
+                                      const char* node_type_str, const char* properties_json) {
+    if (!bridge || !node_id_str) {
+        return BRIDGE_STATUS_INVALID_PARAMETER;
+    }
+    
+    uint64_t node_id = string_to_node_id(node_id_str);
+    NodeType node_type = string_to_node_type(node_type_str);
+    
+    int result = create_managed_node(bridge->node_manager, node_id, node_type, properties_json);
+    
+    if (result != NODE_MANAGER_SUCCESS) {
+        set_bridge_error(bridge, BRIDGE_STATUS_ERROR, "Failed to create node: %s", 
+                         node_manager_get_last_error(bridge->node_manager));
+        return BRIDGE_STATUS_ERROR;
+    }
+    
+    return BRIDGE_STATUS_OK;
+}
+
+// Update node
+BridgeStatus bridge_update_managed_node(PythonToCBridge* bridge, const char* node_id_str,
+                                      const char* properties_json) {
+    if (!bridge || !node_id_str || !properties_json) {
+        return BRIDGE_STATUS_INVALID_PARAMETER;
+    }
+    
+    uint64_t node_id = string_to_node_id(node_id_str);
+    
+    int result = update_managed_node(bridge->node_manager, node_id, properties_json);
+    
+    if (result != NODE_MANAGER_SUCCESS) {
+        set_bridge_error(bridge, BRIDGE_STATUS_ERROR, "Failed to update node: %s", 
+                         node_manager_get_last_error(bridge->node_manager));
+        return BRIDGE_STATUS_ERROR;
+    }
+    
+    return BRIDGE_STATUS_OK;
+}
+
+// Delete node
+BridgeStatus bridge_delete_managed_node(PythonToCBridge* bridge, const char* node_id_str) {
+    if (!bridge || !node_id_str) {
+        return BRIDGE_STATUS_INVALID_PARAMETER;
+    }
+    
+    uint64_t node_id = string_to_node_id(node_id_str);
+    
+    int result = delete_managed_node(bridge->node_manager, node_id);
+    
+    if (result != NODE_MANAGER_SUCCESS) {
+        set_bridge_error(bridge, BRIDGE_STATUS_ERROR, "Failed to delete node: %s", 
+                         node_manager_get_last_error(bridge->node_manager));
+        return BRIDGE_STATUS_ERROR;
+    }
+    
+    return BRIDGE_STATUS_OK;
+}
+
+// Connect nodes
+BridgeStatus bridge_connect_managed_nodes(PythonToCBridge* bridge, const char* source_id_str,
+                                        const char* target_id_str, double strength) {
+    if (!bridge || !source_id_str || !target_id_str) {
+        return BRIDGE_STATUS_INVALID_PARAMETER;
+    }
+    
+    uint64_t source_id = string_to_node_id(source_id_str);
+    uint64_t target_id = string_to_node_id(target_id_str);
+    
+    int result = connect_managed_nodes(bridge->node_manager, source_id, target_id, strength);
+    
+    if (result != NODE_MANAGER_SUCCESS) {
+        set_bridge_error(bridge, BRIDGE_STATUS_ERROR, "Failed to connect nodes: %s", 
+                         node_manager_get_last_error(bridge->node_manager));
+        return BRIDGE_STATUS_ERROR;
+    }
+    
+    return BRIDGE_STATUS_OK;
+}
+
+// Get updated nodes
+char* bridge_get_updated_managed_nodes(PythonToCBridge* bridge) {
+    if (!bridge) {
+        return NULL;
+    }
+    
+    // We'll use the bridge adapter function to get updated nodes JSON
+    return (char*)bridge_get_updated_nodes();
+}
+
+// Destroy bridge
+void destroy_python_to_c_bridge(PythonToCBridge* bridge) {
+    if (!bridge) return;
+    free(bridge);
+    printf("Python to C bridge destroyed\n");
+}
+
+// Get last error message
+const char* bridge_get_last_error_message(PythonToCBridge* bridge) {
+    return bridge ? bridge->last_error : "Invalid bridge";
+}

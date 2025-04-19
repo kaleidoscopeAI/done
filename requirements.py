@@ -1,0 +1,7 @@
+numpy
+flask
+flask_cors
+flask_socketio
+eventlet
+gevent
+sentence_transformers

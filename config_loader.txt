@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+import json
+import os
+import logging
+from typing import Dict, Any
+import sys
+
+# Add project root to path if running this file directly
+if __name__ == "__main__":
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    sys.path.insert(0, project_root)
+    from src.utils.logging_config import configure_logging, get_logger
+    configure_logging()
+else:
+    from src.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+DEFAULT_CONFIG = {
+    # LLM Settings
+    "LLM_API_KEY": None,
+    "LLM_MODEL": "mixtral:latest",
+    "LLM_PROVIDER": "ollama",
+    "LLM_ENDPOINT": None,
+    "LLM_CONFIG_FILE": "unravel_ai_workdir/llm_config.json",
+
+    # Task Manager Settings
+    "MAX_WORKERS": 4,
+    "TASK_PERSIST_PATH": "tasks.json",
+    "AUTO_RECOVERY": True,
+    "MAX_CPU_PERCENT": 80.0,
+    "MAX_MEMORY_PERCENT": 80.0,
+
+    # Reconstruction Engine Settings
+    "WORK_DIR": "unravel_ai_workdir",
+    
+    # Security Settings
+    "JWT_SECRET_KEY": "CHANGE_THIS_TO_A_RANDOM_SECRET_IN_PRODUCTION",
+    "JWT_ALGORITHM": "HS256",
+    "JWT_EXPIRE_MINUTES": 60,
+    
+    # API Settings
+    "API_HOST": "0.0.0.0",
+    "API_PORT": 8000,
+    "API_WORKERS": 1,
+    "API_LOG_LEVEL": "info"
+}
+
+def load_app_config(config_path: str = "app_config.json") -> Dict[str, Any]:
+    """
+    Loads application configuration from a JSON file, using defaults where needed.
+    Environment variables can override file settings.
+    
+    Args:
+        config_path (str): Path to the JSON config file
+        
+    Returns:
+        Dict[str, Any]: The loaded configuration
+    """
+    config = DEFAULT_CONFIG.copy()
+    
+    # Try to load config from file
+    logger.info(f"Attempting to load application config from: {config_path}")
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                user_config = json.load(f)
+                config.update(user_config)
+            logger.info(f"Loaded application config from {config_path}")
+        else:
+            logger.warning(f"Application config file '{config_path}' not found. Using default settings.")
+            try:
+                # Create a default config file for future use
+                with open(config_path, 'w') as f:
+                    json.dump(DEFAULT_CONFIG, f, indent=4)
+                logger.info(f"Created default application config file: {config_path}")
+            except IOError as e:
+                logger.error(f"Failed to create default app config file {config_path}: {e}")
+
+    except json.JSONDecodeError:
+        logger.error(f"Error decoding JSON from app config file {config_path}. Using default settings.")
+    except Exception as e:
+        logger.error(f"Unexpected error loading app config {config_path}: {e}. Using default settings.", exc_info=True)
+
+    # Override with environment variables if present
+    env_overrides = {
+        "LLM_API_KEY": os.environ.get("LLM_API_KEY"),
+        "LLM_MODEL": os.environ.get("LLM_MODEL"),
+        "LLM_PROVIDER": os.environ.get("LLM_PROVIDER"),
+        "LLM_ENDPOINT": os.environ.get("LLM_ENDPOINT"),
+        "JWT_SECRET_KEY": os.environ.get("JWT_SECRET_KEY"),
+        "API_PORT": os.environ.get("API_PORT"),
+        "MAX_WORKERS": os.environ.get("MAX_WORKERS"),
+        "WORK_DIR": os.environ.get("WORK_DIR"),
+    }
+    
+    # Only update if environment variable exists
+    for key, value in env_overrides.items():
+        if value is not None:
+            # Convert numeric values if needed
+            if key in ["API_PORT", "MAX_WORKERS"]:
+                try:
+                    value = int(value)
+                except ValueError:
+                    logger.warning(f"Invalid value for {key} in environment: {value}. Using default.")
+                    continue
+            elif key in ["MAX_CPU_PERCENT", "MAX_MEMORY_PERCENT"]:
+                try:
+                    value = float(value)
+                except ValueError:
+                    logger.warning(f"Invalid value for {key} in environment: {value}. Using default.")
+                    continue
+            
+            config[key] = value
+            logger.debug(f"Configuration {key} overridden from environment variable")
+
+    # Ensure critical paths exist based on loaded config
+    work_dir = config.get("WORK_DIR", "unravel_ai_workdir")
+    os.makedirs(work_dir, exist_ok=True)
+    
+    # Update paths that depend on work_dir
+    if not os.path.isabs(config.get("TASK_PERSIST_PATH", "")):
+        config["TASK_PERSIST_PATH"] = os.path.join(work_dir, config.get("TASK_PERSIST_PATH", "tasks.json"))
+    
+    if not os.path.isabs(config.get("LLM_CONFIG_FILE", "")):
+        config["LLM_CONFIG_FILE"] = os.path.join(work_dir, config.get("LLM_CONFIG_FILE", "llm_config.json"))
+    
+    logger.info(f"Configuration loaded successfully. Work directory: {work_dir}")
+    return config
+
+# Load config globally for import
+config = load_app_config()
+
+def print_config(conf, hide_secrets=True):
+    """Print current configuration (useful for debugging)."""
+    config_copy = conf.copy()
+    
+    # Hide sensitive values
+    if hide_secrets:
+        for key in config_copy:
+            if any(secret in key.lower() for secret in ["key", "secret", "password", "token"]):
+                config_copy[key] = "*****" if config_copy[key] else None
+    
+    print(json.dumps(config_copy, indent=2))
+
+if __name__ == "__main__":
+    # Test the config loader if run directly
+    print("Loaded configuration:")
+    print_config(config)

@@ -1,0 +1,220 @@
+#include "ollama_integration.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <curl/curl.h>
+#include <stdarg.h>
+
+// Include JSON library if needed for request building
+// #include <jansson.h> // Or json-c
+
+// Global configuration
+static OllamaConfig g_ollama_config = {
+    .base_url = NULL,
+    .model_name = NULL,
+    .timeout_seconds = 60
+};
+
+// Error handling
+static char oi_error_buffer[512] = "No error";
+
+static void set_ollama_error(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsnprintf(oi_error_buffer, sizeof(oi_error_buffer), format, args);
+    va_end(args);
+    fprintf(stderr, "[Ollama Integration Error] %s\n", oi_error_buffer);
+}
+
+const char* ollama_get_last_error(void) {
+    return oi_error_buffer;
+}
+
+// Memory structure for curl callback
+typedef struct {
+    char *memory;
+    size_t size;
+} OllamaMemoryStruct;
+
+// Callback function for curl to write data
+static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t realsize = size * nmemb;
+    OllamaMemoryStruct *mem = (OllamaMemoryStruct *)userp;
+
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    if (!ptr) {
+        set_ollama_error("Not enough memory (realloc returned NULL)");
+        return 0; // Error
+    }
+
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0; // Null-terminate
+
+    return realsize;
+}
+
+int init_ollama_integration(const char* base_url, const char* model_name) {
+    if (g_ollama_config.base_url) free(g_ollama_config.base_url);
+    if (g_ollama_config.model_name) free(g_ollama_config.model_name);
+
+    g_ollama_config.base_url = base_url ? strdup(base_url) : strdup("http://localhost:11434");
+    g_ollama_config.model_name = model_name ? strdup(model_name) : strdup("llama3"); // Default model
+
+    if (!g_ollama_config.base_url || !g_ollama_config.model_name) {
+        set_ollama_error("Failed to allocate memory for config strings");
+        free(g_ollama_config.base_url);
+        free(g_ollama_config.model_name);
+        g_ollama_config.base_url = NULL;
+        g_ollama_config.model_name = NULL;
+        return -1;
+    }
+
+    printf("Ollama integration initialized: URL=%s, Model=%s\n", g_ollama_config.base_url, g_ollama_config.model_name);
+    return 0;
+}
+
+void shutdown_ollama_integration(void) {
+    free(g_ollama_config.base_url);
+    free(g_ollama_config.model_name);
+    g_ollama_config.base_url = NULL;
+    g_ollama_config.model_name = NULL;
+    printf("Ollama integration shutdown.\n");
+}
+
+void configure_ollama(OllamaConfig* config) {
+    if (!config) return;
+    init_ollama_integration(config->base_url, config->model_name); // Re-init with new settings
+    g_ollama_config.timeout_seconds = config->timeout_seconds > 0 ? config->timeout_seconds : 60;
+    printf("Ollama reconfigured: URL=%s, Model=%s, Timeout=%d\n",
+           g_ollama_config.base_url, g_ollama_config.model_name, g_ollama_config.timeout_seconds);
+}
+
+// Helper to perform HTTP POST request
+static char* perform_ollama_request(const char* endpoint, const char* post_data) {
+    CURL *curl;
+    CURLcode res;
+    OllamaMemoryStruct chunk;
+    char url[512];
+
+    if (!g_ollama_config.base_url || !g_ollama_config.model_name) {
+        set_ollama_error("Ollama integration not initialized");
+        return NULL;
+    }
+
+    chunk.memory = malloc(1);
+    if (!chunk.memory) {
+        set_ollama_error("Failed to allocate initial memory for response");
+        return NULL;
+    }
+    chunk.size = 0;
+
+    snprintf(url, sizeof(url), "%s%s", g_ollama_config.base_url, endpoint);
+
+    curl = curl_easy_init();
+    if (!curl) {
+        set_ollama_error("Failed to initialize curl handle");
+        free(chunk.memory);
+        return NULL;
+    }
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)g_ollama_config.timeout_seconds);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "KaleidoscopeAI-Client/1.0");
+
+    res = curl_easy_perform(curl);
+
+    curl_slist_free_all(headers); // Free headers list
+
+    if (res != CURLE_OK) {
+        set_ollama_error("curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        free(chunk.memory);
+        curl_easy_cleanup(curl);
+        return NULL;
+    }
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    if (http_code >= 400) {
+         set_ollama_error("Ollama request failed with HTTP status %ld: %.*s", http_code, (int)chunk.size, chunk.memory);
+         free(chunk.memory);
+         curl_easy_cleanup(curl);
+         return NULL;
+    }
+
+    curl_easy_cleanup(curl);
+    return chunk.memory; // Caller must free this
+}
+
+char* ollama_generate(const char* prompt) {
+    if (!prompt) {
+        set_ollama_error("NULL prompt provided");
+        return NULL;
+    }
+    if (!g_ollama_config.model_name) {
+         set_ollama_error("Ollama model not configured");
+         return NULL;
+    }
+
+    // Build JSON request body (simple string concatenation for now)
+    // Using a JSON library is highly recommended for robustness
+    char* json_template = "{\"model\": \"%s\", \"prompt\": \"%s\", \"stream\": false}";
+    // Estimate buffer size (needs careful handling for escaping prompt)
+    size_t required_size = strlen(json_template) + strlen(g_ollama_config.model_name) + strlen(prompt) + 1;
+    char* post_data = malloc(required_size);
+    if (!post_data) {
+        set_ollama_error("Failed to allocate memory for request body");
+        return NULL;
+    }
+    // WARNING: This snprintf does NOT escape the prompt string properly for JSON.
+    // Use a JSON library (like jansson or json-c) to build the request correctly.
+    snprintf(post_data, required_size, json_template, g_ollama_config.model_name, prompt);
+
+    printf("Sending to Ollama: %s\n", post_data); // Debug
+
+    char* response = perform_ollama_request("/api/generate", post_data);
+
+    free(post_data);
+    return response; // Caller must free
+}
+
+bool check_ollama_service(void) {
+    CURL *curl;
+    CURLcode res;
+    char url[512];
+
+    if (!g_ollama_config.base_url) {
+        set_ollama_error("Ollama integration not initialized");
+        return false;
+    }
+    snprintf(url, sizeof(url), "%s", g_ollama_config.base_url); // Check base URL
+
+    curl = curl_easy_init();
+    if (!curl) {
+        set_ollama_error("Failed to initialize curl handle for health check");
+        return false;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 1L); // HEAD request
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L); // Short timeout
+
+    res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    if (res == CURLE_OK) {
+        printf("Ollama service check successful at %s\n", url);
+        return true;
+    } else {
+        set_ollama_error("Ollama service check failed: %s", curl_easy_strerror(res));
+        return false;
+    }
+}

@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Kaleidoscope</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #040414;
+            --primary-color: #4A6BFF;
+            --secondary-color: #BD00FF;
+            --accent-color: #00f3ff;
+            --text-color: #e0e0e0;
+            --panel-bg: rgba(16, 24, 48, 0.8);
+            --panel-border: rgba(74, 107, 255, 0.4);
+        }
+        
+        body, html {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            height: 100%;
+            width: 100%;
+        }
+        
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        header {
+            background: linear-gradient(90deg, rgba(74, 107, 255, 0.8), rgba(189, 0, 255, 0.8));
+            padding: 10px 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        
+        header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .btn:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+        
+        .btn i {
+            font-size: 0.8rem;
+        }
+        
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .side-panel {
+            width: 300px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--panel-border);
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .visualization-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #visualization-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+        }
+        
+        .panel {
+            background-color: rgba(20, 30, 60, 0.7);
+            border: 1px solid rgba(74, 107, 255, 0.3);
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .panel h2 {
+            margin: 0 0 15px 0;
+            font-size: 1.2rem;
+            color: var(--accent-color);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 8px;
+        }
+        
+        .metrics-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        
+        .metric {
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 8px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .metric-label {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .metric-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        
+        .text-input {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .text-input textarea {
+            background-color: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            border-radius: 4px;
+            padding: 10px;
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .text-input button {
+            align-self: flex-end;
+        }
+        
+        .list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .list-item {
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.9rem;
+        }
+        
+        .list-item:hover {
+            background-color: rgba(74, 107, 255, 0.2);
+        }
+        
+        .list-item.selected {
+            background-color: rgba(74, 107, 255, 0.4);
+            border-left: 3px solid var(--primary-color);
+        }
+        
+        .insight-description {
+            font-style: italic;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 5px;
+        }
+        
+        .confidence-bar {
+            height: 4px;
+            background-color: rgba(255, 255, 255, 0.1);
+            margin-top: 5px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background-color: var(--accent-color);
+        }
+        
+        .control-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 10px 15px;
+            display: flex;
+            gap: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            z-index: 5;
+        }
+        
+        /* Loading spinner */
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Quantum particles */
+        .quantum-particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background-color: var(--accent-color);
+            border-radius: 50%;
+            opacity: 0.6;
+            box-shadow: 0 0 10px var(--accent-color);
+            animation: float 15s linear infinite;
+        }
+        
+        @keyframes float {
+            0% { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+            20% { opacity: 0.8; }
+            80% { opacity: 0.8; }
+            100% { transform: translate(var(--tx), var(--ty)) rotate(var(--tr)); opacity: 0; }
+        }
+        
+        /* Switch button */
+        .switch-btn {
+            background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .switch-btn:hover {
+            filter: brightness(1.2);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Details panel for insights/perspectives */
+        .detail-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            z-index: 5;
+            display: none;
+        }
+        
+        .detail-panel h3 {
+            color: var(--accent-color);
+            margin-top: 0;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 5px;
+        }
+        
+        .detail-property {
+            margin-bottom: 8px;
+        }
+        
+        .detail-property label {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.7);
+            display: block;
+            margin-bottom: 3px;
+        }
+        
+        .detail-property value {
+            font-size: 0.9rem;
+            color: white;
+        }
+        
+        .stat-bar {
+            height: 6px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 3px;
+        }
+        
+        .stat-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+        }
+        
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        
+        .close-btn:hover {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Quantum Kaleidoscope</h1>
+            <div class="controls">
+                <button id="auto-gen-btn" class="btn"><i class="fas fa-sync"></i> <span id="auto-gen-status">Start Auto-Gen</span></button>
+                <button id="run-step-btn" class="btn"><i class="fas fa-play"></i> Run Step</button>
+                <button id="view-mode-btn" class="btn"><i class="fas fa-cube"></i> <span id="view-mode-status">3D View</span></button>
+            </div>
+        </header>
+        
+        <div class="main-container">
+            <div class="side-panel">
+                <div class="panel">
+                    <h2>System Metrics</h2>
+                    <div class="metrics-container">
+                        <div class="metric">
+                            <div class="metric-label">Nodes</div>
+                            <div id="node-count" class="metric-value">0</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Patterns</div>
+                            <div id="pattern-count" class="metric-value">0</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Insights</div>
+                            <div id="insight-count" class="metric-value">0</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Perspectives</div>
+                            <div id="perspective-count" class="metric-value">0</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <h2>Process Text</h2>
+                    <div class="text-input">
+                        <textarea id="input-text" placeholder="Enter text to process..."></textarea>
+                        <button id="process-btn" class="btn"><i class="fas fa-cogs"></i> Process</button>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <h2>Insights</h2>
+                    <div id="insights-list" class="list-container">
+                        <!-- Insights will be populated dynamically -->
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <h2>Perspectives</h2>
+                    <div id="perspectives-list" class="list-container">
+                        <!-- Perspectives will be populated dynamically -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="visualization-container">
+                <canvas id="visualization-canvas"></canvas>
+                
+                <div class="quantum-particles" id="particles-container">
+                    <!-- Particles will be dynamically generated -->
+                </div>
+                
+                <div class="control-panel">
+                    <button id="reset-view-btn" class="btn"><i class="fas fa-home"></i> Reset View</button>
+                    <button id="toggle-nodes-btn" class="btn"><i class="fas fa-project-diagram"></i> Toggle Nodes</button>
+                    <button id="toggle-connections-btn" class="btn"><i class="fas fa-network-wired"></i> Toggle Connections</button>
+                    <button id="toggle-tension-btn" class="btn"><i class="fas fa-wave-square"></i> Toggle Tension Field</button>
+                </div>
+            </div>
+            
+            <div class="detail-panel" id="detail-panel">
+                <button class="close-btn"><i class="fas fa-times"></i></button>
+                <h3 id="detail-title">Insight Details</h3>
+                
+                <div class="detail-property">
+                    <label>ID:</label>
+                    <value id="detail-id">insight_123456</value>
+                </div>
+                
+                <div class="detail-property">
+                    <label>Type:</label>
+                    <value id="detail-type">CORRELATION</value>
+                </div>
+                
+                <div class="detail-property">
+                    <label>Description:</label>
+                    <value id="detail-description">Integration of multiple patterns showing coherent structure.</value>
+                </div>
+                
+                <div class="detail-property">
+                    <label>Confidence:</label>
+                    <value id="detail-confidence">0.85</value>
+                    <div class="stat-bar">
+                        <div id="confidence-bar" class="stat-fill" style="width: 85%;"></div>
+                    </div>
+                </div>
+                
+                <div class="detail-property detail-importance-container">
+                    <label>Importance:</label>
+                    <value id="detail-importance">0.72</value>
+                    <div class="stat-bar">
+                        <div id="importance-bar" class="stat-fill" style="width: 72%;"></div>
+                    </div>
+                </div>
+                
+                <div class="detail-property detail-novelty-container">
+                    <label>Novelty:</label>
+                    <value id="detail-novelty">0.63</value>
+                    <div class="stat-bar">
+                        <div id="novelty-bar" class="stat-fill" style="width: 63%;"></div>
+                    </div>
+                </div>
+                
+                <div class="detail-property detail-impact-container">
+                    <label>Impact:</label>
+                    <value id="detail-impact">0.78</value>
+                    <div class="stat-bar">
+                        <div id="impact-bar" class="stat-fill" style="width: 78%;"></div>
+                    </div>
+                </div>
+                
+                <div class="detail-property">
+                    <label>Created:</label>
+                    <value id="detail-timestamp">2023-05-23 14:35:26</value>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+    </div>
+    
+    <!-- Include Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.24.0/axios.min.js"></script>
+    
+    <script>
+        // Configuration
+        const API_URL = 'http://localhost:8000/api';
+        let isAutoGenActive = false;
+        let is3DMode = true;
+        let showNodes = true;
+        let showConnections = true;
+        let showTensionField = true;
+        
+        // Three.js setup
+        let scene, camera, renderer;
+        let nodeObjects = {};
+        let connectionObjects = [];
+        let tensionFieldObjects = [];
+        let controls;
+        
+        // Current data
+        let currentNodes = [];
+        let currentConnections = [];
+        let currentPatterns = [];
+        let currentInsights = [];
+        let currentPerspectives = [];
+        
+        // DOM elements
+        const loadingElement = document.getElementById('loading');
+        const nodeCountElement = document.getElementById('node-count');
+        const patternCountElement = document.getElementById('pattern-count');
+        const insightCountElement = document.getElementById('insight-count');
+        const perspectiveCountElement = document.getElementById('perspective-count');
+        const insightsListElement = document.getElementById('insights-list');
+        const perspectivesListElement = document.getElementById('perspectives-list');
+        const detailPanelElement = document.getElementById('detail-panel');
+        
+        // Initialize quantum particles
+        function initParticles() {
+            const container = document.getElementById('particles-container');
+            const particleCount = 50;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('particle');
+                
+                // Random initial position
+                const x = Math.random() * 100;
+                const y = Math.random() * 100;
+                
+                // Random target position
+                const tx = (Math.random() - 0.5) * 100;
+                const ty = (Math.random() - 0.5) * 100;
+                const tr = Math.random() * 360;
+                
+                // Random colors
+                const hue = Math.random() * 60 + 180; // Blue to cyan range
+                
+                // Random delay and duration
+                const delay = Math.random() * 10;
+                const duration = 10 + Math.random() * 20;
+                
+                // Apply styles
+                particle.style.left = `${x}%`;
+                particle.style.top = `${y}%`;
+                particle.style.setProperty('--tx', `${tx}%`);
+                particle.style.setProperty('--ty', `${ty}%`);
+                particle.style.setProperty('--tr', `${tr}deg`);
+                particle.style.backgroundColor = `hsl(${hue}, 80%, 60%)`;
+                particle.style.boxShadow = `0 0 15px hsl(${hue}, 80%, 60%)`;
+                particle.style.animationDuration = `${duration}s`;
+                particle.style.animationDelay = `${delay}s`;
+                
+                container.appendChild(particle);
+            }
+        }
+        
+        // Initialize Three.js scene
+        function initVisualization() {
+            const container = document.querySelector('.visualization-container');
+            const canvas = document.getElementById('visualization-canvas');
+            
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x040414);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.z = 5;
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            
+            // Create controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            // Add ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            // Add directional light
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+            
+            // Add point light
+            const pointLight = new THREE.PointLight(0x4A6BFF, 1, 10);
+            pointLight.position.set(0, 0, 3);
+            scene.add(pointLight);
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+            
+            // Start animation loop
+            animate();
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // Clear visualization objects
+        function clearVisualizationObjects() {
+            // Clear nodes
+            Object.values(nodeObjects).forEach(obj => {
+                scene.remove(obj);
+            });
+            nodeObjects = {};
+            
+            // Clear connections
+            connectionObjects.forEach(obj => {
+                scene.remove(obj);
+            });
+            connectionObjects = [];
+            
+            // Clear tension field
+            tensionFieldObjects.forEach(obj => {
+                scene.remove(obj);
+            });
+            tensionFieldObjects = [];
+        }
+        
+        // Update visualization with new data
+        function updateVisualization(data) {
+            clearVisualizationObjects();
+            
+            // Update nodes
+            currentNodes = data.nodes || [];
+            currentNodes.forEach(node => {
+                const nodeGeometry = new THREE.SphereGeometry(0.1 * (node.energy + 0.5), 16, 16);
+                const nodeMaterial = new THREE.MeshPhongMaterial({
+                    color: new THREE.Color(0.2, 0.5 + node.stability * 0.5, 1.0),
+                    emissive: new THREE.Color(0.1, 0.2, 0.5),
+                    shininess: 100
+                });
+                
+                const nodeMesh = new THREE.Mesh(nodeGeometry, nodeMaterial);
+                nodeMesh.position.set(...node.position);
+                
+                if (showNodes) {
+                    scene.add(nodeMesh);
+                }
+                
+                nodeObjects[node.id] = nodeMesh;
+            });
+            
+            // Update connections
+            currentConnections = data.connections || [];
+            if (showConnections) {
+                currentConnections.forEach(conn => {
+                    const sourceNode = currentNodes.find(n => n.id === conn.source);
+                    const targetNode = currentNodes.find(n => n.id === conn.target);
+                    
+                    if (sourceNode && targetNode) {
+                        const points = [
+                            new THREE.Vector3(...sourceNode.position),
+                            new THREE.Vector3(...targetNode.position)
+                        ];
+                        
+                        const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                        const lineMaterial = new THREE.LineBasicMaterial({
+                            color: 0x4A6BFF,
+                            opacity: conn.strength,
+                            transparent: true
+                        });
+                        
+                        const line = new THREE.Line(lineGeometry, lineMaterial);
+                        scene.add(line);
+                        connectionObjects.push(line);
+                    }
+                });
+            }
+            
+            // Update tension field if available and enabled
+            if (data.tension_field && showTensionField) {
+                data.tension_field.forEach(point => {
+                    if (point.tension > 0.5) {  // Only show high tension points
+                        const pointGeometry = new THREE.SphereGeometry(0.05 * point.tension, 8, 8);
+                        const pointMaterial = new THREE.MeshBasicMaterial({
+                            color: new THREE.Color(1.0, 0.3, 0.0),
+                            transparent: true,
+                            opacity: point.tension * 0.7
+                        });
+                        
+                        const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
+                        pointMesh.position.set(...point.position);
+                        
+                        scene.add(pointMesh);
+                        tensionFieldObjects.push(pointMesh);
+                    }
+                });
+            }
+        }
+        
+        // Update metrics display
+        function updateMetrics(data) {
+            nodeCountElement.textContent = data.metrics.node_count || 0;
+            patternCountElement.textContent = data.metrics.pattern_count || 0;
+            insightCountElement.textContent = data.metrics.insight_count || 0;
+            perspectiveCountElement.textContent = data.metrics.perspective_count || 0;
+        }
+        
+        // Update insights list
+        function updateInsights(insights) {
+            currentInsights = insights || [];
+            insightsListElement.innerHTML = '';
+            
+            currentInsights.forEach(insight => {
+                const insightElement = document.createElement('div');
+                insightElement.classList.add('list-item');
+                insightElement.dataset.id = insight.id;
+                
+                const typeSpan = document.createElement('span');
+                typeSpan.textContent = insight.type;
+                insightElement.appendChild(typeSpan);
+                
+                const description = document.createElement('div');
+                description.classList.add('insight-description');
+                description.textContent = insight.description;
+                insightElement.appendChild(description);
+                
+                const confidenceBar = document.createElement('div');
+                confidenceBar.classList.add('confidence-bar');
+                
+                const confidenceFill = document.createElement('div');
+                confidenceFill.classList.add('confidence-fill');
+                confidenceFill.style.width = `${insight.confidence * 100}%`;
+                
+                confidenceBar.appendChild(confidenceFill);
+                insightElement.appendChild(confidenceBar);
+                
+                insightElement.addEventListener('click', () => {
+                    showInsightDetails(insight);
+                });
+                
+                insightsListElement.appendChild(insightElement);
+            });
+        }
+        
+        // Update perspectives list
+        function updatePerspectives(perspectives) {
+            currentPerspectives = perspectives || [];
+            perspectivesListElement.innerHTML = '';
+            
+            currentPerspectives.forEach(perspective => {
+                const perspectiveElement = document.createElement('div');
+                perspectiveElement.classList.add('list-item');
+                perspectiveElement.dataset.id = perspective.id;
+                
+                const descSpan = document.createElement('span');
+                descSpan.textContent = perspective.description;
+                perspectiveElement.appendChild(descSpan);
+                
+                const impactBar = document.createElement('div');
+                impactBar.classList.add('confidence-bar');
+                
+                const impactFill = document.createElement('div');
+                impactFill.classList.add('confidence-fill');
+                impactFill.style.width = `${perspective.impact * 100}%`;
+                impactFill.style.backgroundColor = '#BD00FF';
+                
+                impactBar.appendChild(impactFill);
+                perspectiveElement.appendChild(impactBar);
+                
+                perspectiveElement.addEventListener('click', () => {
+                    showPerspectiveDetails(perspective);
+                });
+                
+                perspectivesListElement.appendChild(perspectiveElement);
+            });
+        }
+        
+        // Show insight details
+        function showInsightDetails(insight) {
+            document.getElementById('detail-title').textContent = 'Insight Details';
+            document.getElementById('detail-id').textContent = insight.id;
+            document.getElementById('detail-type').textContent = insight.type;
+            document.getElementById('detail-description').textContent = insight.description;
+            document.getElementById('detail-confidence').textContent = insight.confidence.toFixed(2);
+            document.getElementById('confidence-bar').style.width = `${insight.confidence * 100}%`;
+            
+            document.getElementById('detail-importance').textContent = insight.importance.toFixed(2);
+            document.getElementById('importance-bar').style.width = `${insight.importance * 100}%`;
+            
+            document.getElementById('detail-novelty').textContent = insight.novelty.toFixed(2);
+            document.getElementById('novelty-bar').style.width = `${insight.novelty * 100}%`;
+            
+            document.querySelector('.detail-impact-container').style.display = 'none';
+            document.querySelector('.detail-importance-container').style.display = 'block';
+            document.querySelector('.detail-novelty-container').style.display = 'block';
+            
+            const timestamp = new Date(insight.timestamp * 1000).toLocaleString();
+            document.getElementById('detail-timestamp').textContent = timestamp;
+            
+            detailPanelElement.style.display = 'block';
+        }
+        
+        // Show perspective details
+        function showPerspectiveDetails(perspective) {
+            document.getElementById('detail-title').textContent = 'Perspective Details';
+            document.getElementById('detail-id').textContent = perspective.id;
+            document.getElementById('detail-type').textContent = 'Perspective';
+            document.getElementById('detail-description').textContent = perspective.description;
+            
+            document.getElementById('detail-confidence').textContent = perspective.strength.toFixed(2);
+            document.getElementById('confidence-bar').style.width = `${perspective.strength * 100}%`;
+            
+            document.getElementById('detail-importance').textContent = perspective.coherence.toFixed(2);
+            document.getElementById('importance-bar').style.width = `${perspective.coherence * 100}%`;
+            
+            document.getElementById('detail-novelty').textContent = perspective.novelty.toFixed(2);
+            document.getElementById('novelty-bar').style.width = `${perspective.novelty * 100}%`;
+            
+            document.getElementById('detail-impact').textContent = perspective.impact.toFixed(2);
+            document.getElementById('impact-bar').style.width = `${perspective.impact * 100}%`;
+            
+            document.querySelector('.detail-impact-container').style.display = 'block';
+            document.querySelector('.detail-importance-container').style.display = 'block';
+            document.querySelector('.detail-novelty-container').style.display = 'block';
+            
+            const timestamp = new Date(perspective.timestamp * 1000).toLocaleString();
+            document.getElementById('detail-timestamp').textContent = timestamp;
+            
+            detailPanelElement.style.display = 'block';
+        }
+        
+        // Fetch visualization data
+        async function fetchVisualizationData() {
+            try {
+                const response = await axios.get(`${API_URL}/visualization`);
+                const data = response.data;
+                
+                updateVisualization(data);
+                updateMetrics(data);
+                updateInsights(data.insights);
+                updatePerspectives(data.perspectives);
+                
+            } catch (error) {
+                console.error('Error fetching visualization data:', error);
+            }
+        }
+        
+        // Process text
+        async function processText(text) {
+            if (!text.trim()) return;
+            
+            loadingElement.style.display = 'flex';
+            
+            try {
+                await axios.post(`${API_URL}/process/text`, { text });
+                await fetchVisualizationData();
+                loadingElement.style.display = 'none';
+                
+            } catch (error) {
+                console.error('Error processing text:', error);
+                loadingElement.style.display = 'none';
+            }
+        }
+        
+        // Toggle auto-generation
+        async function toggleAutoGeneration() {
+            const btn = document.getElementById('auto-gen-btn');
+            const statusText = document.getElementById('auto-gen-status');
+            
+            try {
+                if (isAutoGenActive) {
+                    await axios.post(`${API_URL}/auto-generation/stop`);
+                    isAutoGenActive = false;
+                    statusText.textContent = 'Start Auto-Gen';
+                    btn.innerHTML = '<i class="fas fa-sync"></i> Start Auto-Gen';
+                } else {
+                    await axios.post(`${API_URL}/auto-generation/start`, { interval: 3.0 });
+                    isAutoGenActive = true;
+                    statusText.textContent = 'Stop Auto-Gen';
+                    btn.innerHTML = '<i class="fas fa-stop"></i> Stop Auto-Gen';
+                }
+            } catch (error) {
+                console.error('Error toggling auto-generation:', error);
+            }
+        }
+        
+        // Run simulation step
+        async function runSimulationStep() {
+            loadingElement.style.display = 'flex';
+            
+            try {
+                await axios.post(`${API_URL}/simulate`, { steps: 1 });
+                await fetchVisualizationData();
+                loadingElement.style.display = 'none';
+                
+            } catch (error) {
+                console.error('Error running simulation step:', error);
+                loadingElement.style.display = 'none';
+            }
+        }
+        
+        // Toggle view mode (3D/2D)
+        function toggleViewMode() {
+            const btn = document.getElementById('view-mode-btn');
+            const statusText = document.getElementById('view-mode-status');
+            
+            is3DMode = !is3DMode;
+            
+            if (is3DMode) {
+                statusText.textContent = '3D View';
+                btn.innerHTML = '<i class="fas fa-cube"></i> 3D View';
+                camera.position.z = 5;
+            } else {
+                statusText.textContent = '2D View';
+                btn.innerHTML = '<i class="fas fa-square"></i> 2D View';
+                camera.position.z = 10;
+            }
+            
+            // Update camera
+            controls.update();
+        }
+        
+        // Reset view
+        function resetView() {
+            camera.position.set(0, 0, 5);
+            camera.lookAt(0, 0, 0);
+            controls.update();
+        }
+        
+        // Toggle nodes visibility
+        function toggleNodes() {
+            showNodes = !showNodes;
+            
+            Object.values(nodeObjects).forEach(obj => {
+                if (showNodes) {
+                    scene.add(obj);
+                } else {
+                    scene.remove(obj);
+                }
+            });
+        }
+        
+        // Toggle connections visibility
+        function toggleConnections() {
+            showConnections = !showConnections;
+            
+            connectionObjects.forEach(obj => {
+                if (showConnections) {
+                    scene.add(obj);
+                } else {
+                    scene.remove(obj);
+                }
+            });
+        }
+        
+        // Toggle tension field visibility
+        function toggleTensionField() {
+            showTensionField = !showTensionField;
+            
+            tensionFieldObjects.forEach(obj => {
+                if (showTensionField) {
+                    scene.add(obj);
+                } else {
+                    scene.remove(obj);
+                }
+            });
+        }
+        
+        // Initialize application
+        async function init() {
+            // Initialize particles
+            initParticles();
+            
+            // Initialize visualization
+            initVisualization();
+            
+            // Fetch initial data
+            await fetchVisualizationData();
+            
+            // Hide loading spinner
+            loadingElement.style.display = 'none';
+            
+            // Set up event listeners
+            document.getElementById('process-btn').addEventListener('click', () => {
+                const text = document.getElementById('input-text').value;
+                processText(text);
+            });
+            
+            document.getElementById('auto-gen-btn').addEventListener('click', toggleAutoGeneration);
+            document.getElementById('run-step-btn').addEventListener('click', runSimulationStep);
+            document.getElementById('view-mode-btn').addEventListener('click', toggleViewMode);
+            document.getElementById('reset-view-btn').addEventListener('click', resetView);
+            document.getElementById('toggle-nodes-btn').addEventListener('click', toggleNodes);
+            document.getElementById('toggle-connections-btn').addEventListener('click', toggleConnections);
+            document.getElementById('toggle-tension-btn').addEventListener('click', toggleTensionField);
+            
+            document.querySelector('.close-btn').addEventListener('click', () => {
+                detailPanelElement.style.display = 'none';
+            });
+            
+            // Set up polling for updates
+            setInterval(fetchVisualizationData, 5000);
+        }
+        
+        // Start the application
+        init().catch(error => {
+            console.error('Error initializing application:', error);
+            loadingElement.style.display = 'none';
+        });
+    </script>
+</body>
+</html>

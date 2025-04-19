@@ -1,0 +1,3 @@
+2025-04-13 11:56:39,372 - QuantumDrugSystem - ERROR - Error importing components: cannot import name 'QuantumDrugSimulator' from 'quantum_drug_simulator' (/home/jg/claud-fun/quantum_drug_simulator.py)
+2025-04-13 11:56:39,642 - QuantumDrugSystem - ERROR - Missing required packages: torch, rdkit, networkx
+2025-04-13 11:56:39,642 - QuantumDrugSystem - ERROR - Please install these packages first

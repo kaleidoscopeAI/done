@@ -1,0 +1,284 @@
+#include "web_crawler.h"
+#include "data_ingestion.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <stdbool.h>
+#include <unistd.h> // For usleep
+#include <stdarg.h>
+#include <curl/curl.h> // Include curl for fetching
+
+// Error handling
+static char wc_error_buffer[256] = "No error";
+
+static void set_web_crawler_error(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsnprintf(wc_error_buffer, sizeof(wc_error_buffer), format, args);
+    va_end(args);
+    fprintf(stderr, "[Web Crawler Error] %s\n", wc_error_buffer);
+}
+
+const char* web_crawler_get_last_error(void) {
+    return wc_error_buffer;
+}
+
+// Memory structure for curl callback (can be shared or duplicated)
+typedef struct {
+    char *memory;
+    size_t size;
+} CrawlerMemoryStruct;
+
+// Callback function for curl to write data
+static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t realsize = size * nmemb;
+    CrawlerMemoryStruct *mem = (CrawlerMemoryStruct *)userp;
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    if (!ptr) {
+        set_web_crawler_error("Not enough memory (realloc returned NULL)");
+        return 0;
+    }
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+    return realsize;
+}
+
+// Simple fetch function (replace with more robust crawling logic)
+static char* simple_fetch(WebCrawler* crawler, const char* url) {
+    CURL *curl;
+    CURLcode res;
+    CrawlerMemoryStruct chunk;
+
+    chunk.memory = malloc(1);
+    if (!chunk.memory) {
+        set_web_crawler_error("Failed to allocate initial memory for fetch");
+        return NULL;
+    }
+    chunk.size = 0;
+
+    curl = curl_easy_init();
+    if (!curl) {
+        set_web_crawler_error("Failed to initialize curl handle");
+        free(chunk.memory);
+        return NULL;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, crawler->config.user_agent);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)crawler->config.timeout_seconds);
+    if (crawler->config.follow_redirects) {
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    }
+
+    res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        set_web_crawler_error("Fetch failed for %s: %s", url, curl_easy_strerror(res));
+        free(chunk.memory);
+        curl_easy_cleanup(curl);
+        return NULL;
+    }
+
+    curl_easy_cleanup(curl);
+    return chunk.memory; // Caller must free
+}
+
+// Global crawler instance
+WebCrawler* g_crawler = NULL;
+
+// Internal helper functions
+static void process_crawled_page(WebCrawler* crawler, const char* url, const char* content);
+static bool is_valid_url(const char* url);
+
+// Initialize the web crawler
+WebCrawler* init_web_crawler(struct DataIngestionLayer* ingestion_layer) {
+    WebCrawler* crawler = (WebCrawler*)malloc(sizeof(WebCrawler));
+    if (!crawler) {
+        set_web_crawler_error("Failed to allocate memory for WebCrawler");
+        return NULL;
+    }
+    crawler->ingestion_layer = ingestion_layer;
+    crawler->is_running = false;
+    // Initialize default config
+    crawler->config.max_pages_per_domain = 10;
+    crawler->config.crawl_delay_ms = 1000;
+    crawler->config.timeout_seconds = 30;
+    crawler->config.max_results = 100;
+    crawler->config.max_crawl_depth = 5;
+    crawler->config.respect_robots_txt = true;
+    crawler->config.follow_redirects = true;
+    strcpy(crawler->config.user_agent, "DefaultCrawler/1.0");
+
+    if (pthread_mutex_init(&crawler->lock, NULL) != 0) {
+        set_web_crawler_error("Mutex initialization failed");
+        free(crawler);
+        return NULL;
+    }
+
+    printf("Web crawler initialized.\n");
+    g_crawler = crawler;
+    return crawler;
+}
+
+// Configure the web crawler
+void configure_web_crawler(WebCrawler* crawler, const CrawlerConfig* config) {
+    if (!crawler || !config) return;
+    pthread_mutex_lock(&crawler->lock);
+    crawler->config = *config; // Copy config struct
+    // Ensure user agent is null-terminated
+    crawler->config.user_agent[sizeof(crawler->config.user_agent) - 1] = '\0';
+    pthread_mutex_unlock(&crawler->lock);
+    printf("Web crawler configured. User Agent: %s\n", crawler->config.user_agent);
+}
+
+// Start a web crawl from a given URL
+bool start_crawl(WebCrawler* crawler, const char* start_query) {
+    if (!crawler) {
+        set_web_crawler_error("NULL crawler");
+        return false;
+    }
+    pthread_mutex_lock(&crawler->lock);
+    if (crawler->is_running) {
+        pthread_mutex_unlock(&crawler->lock);
+        set_web_crawler_error("Crawler is already running");
+        return false;
+    }
+    crawler->is_running = true;
+    pthread_mutex_unlock(&crawler->lock);
+
+    printf("Starting crawl for query: %s (placeholder)\n", start_query);
+
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, crawl_thread_func, crawler) != 0) {
+        set_web_crawler_error("Failed to create crawler thread");
+        pthread_mutex_lock(&crawler->lock);
+        crawler->is_running = false;
+        pthread_mutex_unlock(&crawler->lock);
+        return false;
+    }
+    pthread_detach(tid); // Run in background
+
+    return true;
+}
+
+// Placeholder crawl function
+void* crawl_thread_func(void* arg) {
+    WebCrawler* crawler = (WebCrawler*)arg;
+    char* start_url = strdup("https://example.com"); // Placeholder
+
+    printf("Crawler thread started for: %s\n", start_url);
+
+    char* content = simple_fetch(crawler, start_url);
+    if (content) {
+        printf("Fetched %zu bytes from %s\n", strlen(content), start_url);
+        if (crawler->ingestion_layer) {
+            ingest_text(crawler->ingestion_layer, content);
+        }
+        free(content);
+    }
+
+    free(start_url);
+    printf("Crawler thread finished.\n");
+    pthread_mutex_lock(&crawler->lock);
+    crawler->is_running = false; // Mark as finished
+    pthread_mutex_unlock(&crawler->lock);
+    return NULL;
+}
+
+// Start an autonomous data crawl for a specific topic
+bool autonomous_data_crawl(WebCrawler* crawler, const char* topic, bool high_priority) {
+    if (!crawler) {
+        set_web_crawler_error("NULL crawler for autonomous crawl");
+        return false;
+    }
+    printf("Autonomous crawl triggered for topic: %s (Priority: %s)\n",
+           topic, high_priority ? "High" : "Normal");
+
+    CrawlerConfig original_config;
+    if (high_priority) {
+        pthread_mutex_lock(&crawler->lock);
+        original_config = crawler->config;
+        crawler->config.crawl_delay_ms = 100; // Reduce delay for high priority
+        pthread_mutex_unlock(&crawler->lock);
+    }
+
+    bool success = start_crawl(crawler, topic);
+
+    if (high_priority) {
+        printf("Note: High priority config modification needs better handling.\n");
+    }
+
+    return success;
+}
+
+// Stop the web crawler
+void stop_crawl(WebCrawler* crawler) {
+    if (!crawler) return;
+    pthread_mutex_lock(&crawler->lock);
+    if (crawler->is_running) {
+        printf("Requesting crawler stop...\n");
+        crawler->is_running = false; // Signal threads to stop
+    }
+    pthread_mutex_unlock(&crawler->lock);
+}
+
+// Get the crawler status
+const char* get_crawler_status(WebCrawler* crawler) {
+    static char status[256];
+    
+    if (!crawler) {
+        strcpy(status, "Crawler not initialized");
+    } else if (crawler->is_running) {
+        snprintf(status, sizeof(status), 
+                "Active crawls: %d, Pages crawled: %d", 
+                crawler->active_crawls, crawler->total_pages_crawled);
+    } else {
+        snprintf(status, sizeof(status), 
+                "Idle, Pages crawled: %d", 
+                crawler->total_pages_crawled);
+    }
+    
+    return status;
+}
+
+// Clean up the web crawler
+void destroy_web_crawler(WebCrawler* crawler) {
+    if (!crawler) return;
+    stop_crawl(crawler);
+    pthread_mutex_destroy(&crawler->lock);
+    free(crawler);
+    printf("Web crawler destroyed.\n");
+    if (g_crawler == crawler) {
+        g_crawler = NULL;
+    }
+}
+
+// Process a crawled page
+static void process_crawled_page(WebCrawler* crawler, const char* url, const char* content) {
+    if (!crawler || !url || !content) return;
+    
+    printf("Processing crawled page: %s\n", url);
+    
+    if (crawler->ingestion_layer) {
+        ingest_text(crawler->ingestion_layer, content);
+    }
+}
+
+// Check if a URL is valid
+static bool is_valid_url(const char* url) {
+    if (!url) return false;
+    return (strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0);
+}
+
+// Check if the crawler is currently busy
+bool is_crawler_busy(WebCrawler* crawler) {
+    if (!crawler) {
+        return false;
+    }
+    return crawler->active_crawls > 0;
+}

@@ -1,0 +1,160 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <errno.h>
+#include <time.h>
+#include <stdarg.h>
+#include "task_manager.h"
+
+// Simple linked list for task queue
+typedef struct TaskNode {
+    Task task;
+    struct TaskNode* next;
+} TaskNode;
+
+struct TaskManager {
+    TaskNode* head;
+    TaskNode* tail;
+    int task_count;
+    int next_task_id;
+    pthread_mutex_t lock;
+    // Add worker thread pool if needed
+};
+
+// Error handling
+static char tm_error_buffer[256] = "No error";
+
+static void set_task_manager_error(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsnprintf(tm_error_buffer, sizeof(tm_error_buffer), format, args);
+    va_end(args);
+    fprintf(stderr, "[Task Manager Error] %s\n", tm_error_buffer);
+}
+
+const char* task_manager_get_last_error(void) {
+    return tm_error_buffer;
+}
+
+TaskManager* init_task_manager(int max_concurrent_tasks) {
+    TaskManager* tm = (TaskManager*)malloc(sizeof(TaskManager));
+    if (!tm) {
+        set_task_manager_error("Failed to allocate memory for TaskManager");
+        return NULL;
+    }
+    tm->head = NULL;
+    tm->tail = NULL;
+    tm->task_count = 0;
+    tm->next_task_id = 1;
+    if (pthread_mutex_init(&tm->lock, NULL) != 0) {
+        set_task_manager_error("Mutex initialization failed");
+        free(tm);
+        return NULL;
+    }
+    printf("Task manager initialized (max concurrent: %d - placeholder)\n", max_concurrent_tasks);
+    return tm;
+}
+
+void destroy_task_manager(TaskManager* tm) {
+    if (!tm) return;
+    pthread_mutex_lock(&tm->lock);
+    TaskNode* current = tm->head;
+    while (current) {
+        TaskNode* next = current->next;
+        if (current->task.data) free(current->task.data);
+        free(current);
+        current = next;
+    }
+    pthread_mutex_unlock(&tm->lock);
+    pthread_mutex_destroy(&tm->lock);
+    free(tm);
+    printf("Task manager destroyed\n");
+}
+
+int add_task(TaskManager* tm, int type, int priority, uint64_t related_node_id, const char* data) {
+    if (!tm) {
+        set_task_manager_error("NULL TaskManager");
+        return 0; // Failure
+    }
+
+    TaskNode* newNode = (TaskNode*)malloc(sizeof(TaskNode));
+    if (!newNode) {
+        set_task_manager_error("Failed to allocate memory for TaskNode");
+        return 0; // Failure
+    }
+
+    newNode->task.id = tm->next_task_id++;
+    newNode->task.type = type;
+    newNode->task.priority = priority;
+    newNode->task.status = TASK_STATUS_PENDING;
+    newNode->task.related_node_id = related_node_id;
+    newNode->task.data = data ? strdup(data) : NULL;
+    newNode->next = NULL;
+
+    pthread_mutex_lock(&tm->lock);
+    if (tm->tail) {
+        tm->tail->next = newNode;
+        tm->tail = newNode;
+    } else {
+        tm->head = tm->tail = newNode;
+    }
+    tm->task_count++;
+    pthread_mutex_unlock(&tm->lock);
+
+    printf("Added task %d (type %d, priority %d)\n", newNode->task.id, type, priority);
+    return 1; // Success
+}
+
+// Placeholder: Needs actual JSON library
+char* get_next_task(TaskManager* tm) {
+    if (!tm) {
+        set_task_manager_error("NULL TaskManager");
+        return NULL;
+    }
+
+    pthread_mutex_lock(&tm->lock);
+    if (!tm->head) {
+        pthread_mutex_unlock(&tm->lock);
+        return NULL; // No tasks
+    }
+
+    TaskNode* node = tm->head;
+    // Simple FIFO for now, could implement priority later
+    tm->head = node->next;
+    if (!tm->head) {
+        tm->tail = NULL; // Queue is now empty
+    }
+    tm->task_count--;
+    pthread_mutex_unlock(&tm->lock);
+
+    node->task.status = TASK_STATUS_PROCESSING;
+
+    // Serialize task to JSON (Placeholder)
+    char buffer[1024];
+    snprintf(buffer, sizeof(buffer),
+             "{\"id\":%d, \"type\":%d, \"priority\":%d, \"status\":%d, \"related_node_id\":%lu, \"data\":\"%s\"}",
+             node->task.id, node->task.type, node->task.priority, node->task.status,
+             node->task.related_node_id, node->task.data ? node->task.data : "");
+
+    // Free the node but keep the task data until completion
+    // In a real system, you'd track processing tasks separately
+    if (node->task.data) free(node->task.data); // Or pass ownership
+    free(node);
+
+    printf("Retrieved task for processing (JSON placeholder)\n");
+    return strdup(buffer); // Caller must free
+}
+
+int complete_task(TaskManager* tm, int task_id) {
+    if (!tm) {
+        set_task_manager_error("NULL TaskManager");
+        return 0; // Failure
+    }
+    // In a real system, find the task being processed and mark it complete
+    // Free any associated resources
+    printf("Marking task %d as complete (placeholder)\n", task_id);
+    return 1; // Success
+}
+
