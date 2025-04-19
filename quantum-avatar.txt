@@ -1,0 +1,970 @@
+// QuantumAvatar.js - Advanced quantum-inspired visualization component
+// This component creates sophisticated grid-based animations that respond to user context
+import React, { useEffect, useRef, useState } from 'react';
+
+class QuantumParticleSystem {
+  constructor(options = {}) {
+    // Default configuration
+    this.config = {
+      particleCount: options.particleCount || 800,
+      baseSize: options.baseSize || 2,
+      maxSize: options.maxSize || 4,
+      speedFactor: options.speedFactor || 1,
+      colorPalette: options.colorPalette || [
+        '#36EAFF', // cyan
+        '#FF36D0', // magenta
+        '#36FF42', // green
+        '#FFDE36', // yellow
+        '#3654FF'  // blue
+      ],
+      patternComplexity: options.patternComplexity || 0.7,
+      energyLevel: options.energyLevel || 0.8,
+      flowSpeed: options.flowSpeed || 0.5,
+      interactivity: options.interactivity || 0.8,
+      moodInfluence: options.moodInfluence || 0.7,
+      patternType: options.patternType || 'quantum', // 'quantum', 'field', 'spiral', 'wave', 'radial'
+      glowIntensity: options.glowIntensity || 0.6,
+      timeVariance: options.timeVariance || 0.5,
+      stateEntanglement: options.stateEntanglement || 0.7 // How much particles influence each other
+    };
+    
+    // Create particle array
+    this.particles = [];
+    this.initialize();
+    
+    // Track system state
+    this.systemState = {
+      mood: 'neutral',
+      energy: 'medium',
+      complexity: 'balanced',
+      harmony: 0.7,
+      lastUpdate: Date.now(),
+      userInteraction: {
+        mousePosition: { x: 0, y: 0 },
+        active: false,
+        lastActivity: Date.now()
+      },
+      patternPhase: 0,
+      responseState: 'idle', // idle, thinking, responding, listening
+      coherence: 0.8, // How organized the pattern is
+      quantum: {
+        superposition: 0.5, // Blend between two states
+        entanglementFactor: 0.7, // How connected the particles are
+        waveFunction: 0.5, // Current wave state (0-1)
+        collapseState: false // Whether pattern is collapsing to a specific state
+      }
+    };
+  }
+  
+  // Initialize the particle system
+  initialize() {
+    this.particles = [];
+    
+    for (let i = 0; i < this.config.particleCount; i++) {
+      this.particles.push(this.createParticle());
+    }
+  }
+  
+  // Create a single particle with properties
+  createParticle() {
+    const patternType = this.config.patternType;
+    let coords;
+    
+    // Create different initial positions based on pattern type
+    switch (patternType) {
+      case 'quantum':
+        // Grid pattern with quantum-like distribution
+        coords = this.createQuantumGridPosition();
+        break;
+      case 'field':
+        // Field-like pattern
+        coords = this.createFieldPosition();
+        break;
+      case 'spiral':
+        // Spiral pattern
+        coords = this.createSpiralPosition();
+        break;
+      case 'wave':
+        // Wave pattern
+        coords = this.createWavePosition();
+        break;
+      case 'radial':
+        // Radial pattern emanating from center
+        coords = this.createRadialPosition();
+        break;
+      default:
+        coords = this.createQuantumGridPosition();
+    }
+    
+    // Get random color from palette
+    const color = this.config.colorPalette[
+      Math.floor(Math.random() * this.config.colorPalette.length)
+    ];
+    
+    return {
+      x: coords.x,
+      y: coords.y,
+      z: coords.z || 0,
+      baseX: coords.x, // Original position
+      baseY: coords.y,
+      baseZ: coords.z || 0,
+      color: color,
+      size: this.config.baseSize + Math.random() * (this.config.maxSize - this.config.baseSize),
+      speed: (0.2 + Math.random() * 0.8) * this.config.speedFactor,
+      phase: Math.random() * Math.PI * 2, // Random starting phase
+      pulseFactor: 0.5 + Math.random() * 0.5,
+      // Quantum properties
+      entanglement: [], // IDs of entangled particles
+      superpositionState: Math.random(), // Value between 0-1 for blending states
+      probabilityFactor: Math.random(),
+      waveFunction: {
+        amplitude: 0.5 + Math.random() * 0.5,
+        frequency: 0.5 + Math.random() * 1.5,
+        phase: Math.random() * Math.PI * 2
+      },
+      // Visual properties
+      opacity: 0.7 + Math.random() * 0.3,
+      glowFactor: 0.5 + Math.random() * 0.5
+    };
+  }
+  
+  // Create positions for different pattern types
+  createQuantumGridPosition() {
+    // Create a grid with quantum-like properties
+    const gridSize = Math.sqrt(this.config.particleCount);
+    const xPos = (Math.random() * 2 - 1);
+    const yPos = (Math.random() * 2 - 1);
+    
+    // Add some quantum noise
+    const quantumNoise = {
+      x: (Math.random() * 2 - 1) * 0.1,
+      y: (Math.random() * 2 - 1) * 0.1
+    };
+    
+    return {
+      x: xPos + quantumNoise.x,
+      y: yPos + quantumNoise.y,
+      z: Math.random() * 0.2 - 0.1 // Small Z variance for depth
+    };
+  }
+  
+  createFieldPosition() {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = Math.pow(Math.random(), 0.5); // Square root for more even distribution
+    
+    return {
+      x: Math.cos(angle) * distance,
+      y: Math.sin(angle) * distance,
+      z: 0
+    };
+  }
+  
+  createSpiralPosition() {
+    const arms = 5; // Number of spiral arms
+    const rotations = 2; // How many rotations in spiral
+    const arm = Math.floor(Math.random() * arms);
+    const angle = (arm / arms) * Math.PI * 2 + (Math.random() * rotations * Math.PI * 2);
+    const distance = Math.random();
+    
+    return {
+      x: Math.cos(angle) * distance,
+      y: Math.sin(angle) * distance,
+      z: 0
+    };
+  }
+  
+  createWavePosition() {
+    const x = (Math.random() * 2 - 1);
+    const wavelength = 0.2;
+    const amplitude = 0.3;
+    const y = Math.sin(x / wavelength * Math.PI * 2) * amplitude;
+    
+    return {
+      x: x,
+      y: y + (Math.random() * 0.4 - 0.2), // Add some noise
+      z: 0
+    };
+  }
+  
+  createRadialPosition() {
+    const segments = 12;
+    const rings = 10;
+    const segment = Math.floor(Math.random() * segments);
+    const ring = Math.floor(Math.random() * rings) / rings;
+    const angle = (segment / segments) * Math.PI * 2;
+    
+    return {
+      x: Math.cos(angle) * ring,
+      y: Math.sin(angle) * ring,
+      z: 0
+    };
+  }
+  
+  // Update all particles based on time and state
+  update(timestamp, canvasWidth, canvasHeight) {
+    const deltaTime = timestamp - this.systemState.lastUpdate;
+    this.systemState.lastUpdate = timestamp;
+    
+    // Update system-wide parameters
+    this.updateSystemState(deltaTime);
+    
+    // Get current state parameters
+    const {
+      patternPhase,
+      responseState,
+      coherence,
+      quantum
+    } = this.systemState;
+    
+    // Update pattern transformation parameters
+    this.systemState.patternPhase += deltaTime * 0.0005 * this.config.flowSpeed;
+    
+    // Update individual particles
+    for (let i = 0; i < this.particles.length; i++) {
+      const particle = this.particles[i];
+      
+      // Apply pattern updates based on current active pattern
+      switch (this.config.patternType) {
+        case 'quantum':
+          this.updateQuantumPattern(particle, deltaTime, patternPhase, quantum);
+          break;
+        case 'field':
+          this.updateFieldPattern(particle, deltaTime, patternPhase);
+          break;
+        case 'spiral':
+          this.updateSpiralPattern(particle, deltaTime, patternPhase);
+          break;
+        case 'wave':
+          this.updateWavePattern(particle, deltaTime, patternPhase);
+          break;
+        case 'radial':
+          this.updateRadialPattern(particle, deltaTime, patternPhase);
+          break;
+        default:
+          this.updateQuantumPattern(particle, deltaTime, patternPhase, quantum);
+      }
+      
+      // Apply system state effects
+      this.applyStateEffects(particle, deltaTime, responseState, coherence);
+      
+      // Apply user interaction effects if active
+      if (this.systemState.userInteraction.active) {
+        this.applyUserInteraction(particle, canvasWidth, canvasHeight);
+      }
+    }
+  }
+  
+  // Update the system state based on time and settings
+  updateSystemState(deltaTime) {
+    // Update quantum properties based on time
+    const quantum = this.systemState.quantum;
+    
+    // Smoothly oscillate superposition
+    quantum.superposition = 0.5 + Math.sin(this.systemState.lastUpdate * 0.001 * this.config.timeVariance) * 0.3;
+    
+    // Wavelike function update
+    quantum.waveFunction = (quantum.waveFunction + deltaTime * 0.001 * this.config.flowSpeed) % 1;
+    
+    // Periodically collapse and expand the quantum state
+    if (Math.random() < 0.001 * this.config.timeVariance) {
+      quantum.collapseState = true;
+      
+      // Auto-revert after a short time
+      setTimeout(() => {
+        quantum.collapseState = false;
+      }, 500 + Math.random() * 1000);
+    }
+    
+    // Update coherence based on response state
+    if (this.systemState.responseState === 'thinking') {
+      this.systemState.coherence = Math.max(0.2, this.systemState.coherence - 0.001 * deltaTime);
+    } else if (this.systemState.responseState === 'responding') {
+      this.systemState.coherence = Math.min(0.9, this.systemState.coherence + 0.001 * deltaTime);
+    } else {
+      // Slowly return to baseline
+      const targetCoherence = 0.7;
+      this.systemState.coherence += (targetCoherence - this.systemState.coherence) * 0.0005 * deltaTime;
+    }
+    
+    // Check if user interaction has timed out
+    if (this.systemState.userInteraction.active) {
+      const timeSinceActivity = Date.now() - this.systemState.userInteraction.lastActivity;
+      if (timeSinceActivity > 2000) { // 2 seconds timeout
+        this.systemState.userInteraction.active = false;
+      }
+    }
+  }
+  
+  // Pattern-specific update functions
+  updateQuantumPattern(particle, deltaTime, patternPhase, quantum) {
+    // Calculate wave motion
+    const waveX = Math.sin(
+      (particle.baseX * 5 + patternPhase) * particle.waveFunction.frequency + 
+      particle.waveFunction.phase
+    ) * particle.waveFunction.amplitude * 0.1;
+    
+    const waveY = Math.cos(
+      (particle.baseY * 5 + patternPhase) * particle.waveFunction.frequency + 
+      particle.waveFunction.phase
+    ) * particle.waveFunction.amplitude * 0.1;
+    
+    // Calculate quantum effects
+    const quantumEffect = {
+      x: Math.sin(quantum.waveFunction * Math.PI * 2 + particle.phase) * 0.1,
+      y: Math.cos(quantum.waveFunction * Math.PI * 2 + particle.phase) * 0.1
+    };
+    
+    // Apply quantum collapse effect
+    let collapseFactor = 1;
+    if (quantum.collapseState) {
+      // During collapse, particles move toward discrete positions
+      collapseFactor = 0.5;
+      const gridSpacing = 0.1;
+      const targetX = Math.round(particle.baseX / gridSpacing) * gridSpacing;
+      const targetY = Math.round(particle.baseY / gridSpacing) * gridSpacing;
+      
+      particle.x += (targetX - particle.x) * 0.1;
+      particle.y += (targetY - particle.y) * 0.1;
+    } else {
+      // Normal quantum motion
+      particle.x = particle.baseX + waveX + quantumEffect.x * this.config.patternComplexity;
+      particle.y = particle.baseY + waveY + quantumEffect.y * this.config.patternComplexity;
+    }
+    
+    // Apply superposition effect - blend between two states
+    const superpositionEffect = {
+      x: Math.sin(particle.baseX * Math.PI * 4) * 0.1 * quantum.superposition,
+      y: Math.cos(particle.baseY * Math.PI * 4) * 0.1 * quantum.superposition
+    };
+    
+    particle.x += superpositionEffect.x * this.config.patternComplexity;
+    particle.y += superpositionEffect.y * this.config.patternComplexity;
+    
+    // Update particle size with pulsing effect
+    const pulseFactor = 1 + Math.sin(patternPhase * 8 + particle.phase) * 0.2 * particle.pulseFactor;
+    particle.size = (this.config.baseSize + Math.sin(patternPhase * 4 + particle.phase) * 
+                    (this.config.maxSize - this.config.baseSize) * 0.5) * pulseFactor * collapseFactor;
+    
+    // Update opacity based on quantum state
+    particle.opacity = 0.7 + Math.sin(patternPhase * 2 + particle.phase) * 0.3;
+    
+    // Adjust color slightly over time
+    // We'll keep the base color but adjust its brightness
+  }
+  
+  updateFieldPattern(particle, deltaTime, patternPhase) {
+    // Create a flowing field pattern
+    const angle = Math.atan2(particle.baseY, particle.baseX);
+    const distance = Math.sqrt(particle.baseX * particle.baseX + particle.baseY * particle.baseY);
+    
+    const fieldEffect = {
+      x: Math.cos(angle * 3 + patternPhase * 2) * 0.05,
+      y: Math.sin(angle * 3 + patternPhase * 2) * 0.05
+    };
+    
+    particle.x = particle.baseX + fieldEffect.x * distance * 2;
+    particle.y = particle.baseY + fieldEffect.y * distance * 2;
+    
+    // Size variation
+    particle.size = this.config.baseSize + 
+                   Math.sin(patternPhase * 3 + particle.phase) * 
+                   (this.config.maxSize - this.config.baseSize) * 0.5;
+  }
+  
+  updateSpiralPattern(particle, deltaTime, patternPhase) {
+    // Extract the angle and distance from origin
+    const angle = Math.atan2(particle.baseY, particle.baseX);
+    const distance = Math.sqrt(particle.baseX * particle.baseX + particle.baseY * particle.baseY);
+    
+    // Create spiral rotation effect
+    const rotationSpeed = 0.5 * this.config.flowSpeed;
+    const newAngle = angle + patternPhase * rotationSpeed * (1 - distance * 0.5); // Rotate faster near center
+    
+    // Apply spiral motion
+    particle.x = Math.cos(newAngle) * distance;
+    particle.y = Math.sin(newAngle) * distance;
+    
+    // Apply breathing effect to spiral
+    const breathingFactor = 1 + Math.sin(patternPhase * 2) * 0.1;
+    particle.x *= breathingFactor;
+    particle.y *= breathingFactor;
+    
+    // Size pulsation
+    particle.size = this.config.baseSize + Math.sin(patternPhase * 4 + particle.phase) * 
+                   (this.config.maxSize - this.config.baseSize) * 0.5;
+  }
+  
+  updateWavePattern(particle, deltaTime, patternPhase) {
+    // Create a wave pattern
+    const waveAmplitude = 0.2 * this.config.patternComplexity;
+    const waveFrequency = 5;
+    
+    // Wave motion
+    particle.x = particle.baseX;
+    particle.y = particle.baseY + 
+                Math.sin(particle.baseX * waveFrequency + patternPhase * 3) * 
+                waveAmplitude;
+    
+    // Add perpendicular mini-waves for complexity
+    particle.x += Math.sin(particle.baseY * waveFrequency * 0.5 + patternPhase * 2) * 
+                 waveAmplitude * 0.3;
+    
+    // Size variation based on wave position
+    particle.size = this.config.baseSize + 
+                   Math.sin(patternPhase * 2 + particle.phase) * 
+                   (this.config.maxSize - this.config.baseSize) * 0.5;
+  }
+  
+  updateRadialPattern(particle, deltaTime, patternPhase) {
+    // Create a radial pulsing pattern
+    const angle = Math.atan2(particle.baseY, particle.baseX);
+    const distance = Math.sqrt(particle.baseX * particle.baseX + particle.baseY * particle.baseY);
+    
+    // Pulsing distance effect
+    const pulseFactor = 1 + Math.sin(patternPhase * 2 + distance * 5) * 0.2;
+    
+    // Apply radial motion
+    particle.x = Math.cos(angle) * distance * pulseFactor;
+    particle.y = Math.sin(angle) * distance * pulseFactor;
+    
+    // Rotation effect
+    const rotationSpeed = 0.3 * this.config.flowSpeed;
+    const newAngle = angle + patternPhase * rotationSpeed;
+    
+    // Apply subtle rotation
+    const rotationFactor = 0.1;
+    particle.x = particle.x * (1 - rotationFactor) + Math.cos(newAngle) * distance * pulseFactor * rotationFactor;
+    particle.y = particle.y * (1 - rotationFactor) + Math.sin(newAngle) * distance * pulseFactor * rotationFactor;
+    
+    // Size variation
+    particle.size = this.config.baseSize + 
+                   Math.sin(patternPhase * 3 + particle.phase + distance * 3) * 
+                   (this.config.maxSize - this.config.baseSize) * 0.5;
+  }
+  
+  // Apply effects based on system state
+  applyStateEffects(particle, deltaTime, responseState, coherence) {
+    // Apply effects based on current response state
+    switch (responseState) {
+      case 'thinking':
+        // More chaotic, faster movement during thinking
+        particle.x += (Math.random() * 2 - 1) * 0.01 * (1 - coherence);
+        particle.y += (Math.random() * 2 - 1) * 0.01 * (1 - coherence);
+        break;
+        
+      case 'responding':
+        // More coherent, organized patterns when responding
+        const targetX = particle.baseX * 1.1;
+        const targetY = particle.baseY * 1.1;
+        particle.x += (targetX - particle.x) * 0.05 * coherence;
+        particle.y += (targetY - particle.y) * 0.05 * coherence;
+        break;
+        
+      case 'listening':
+        // Slightly more attentive, focused pattern
+        const focusFactor = 0.95;
+        particle.x *= focusFactor;
+        particle.y *= focusFactor;
+        break;
+        
+      case 'idle':
+      default:
+        // Default behavior, slight drift back to base position
+        particle.x += (particle.baseX - particle.x) * 0.01;
+        particle.y += (particle.baseY - particle.y) * 0.01;
+        break;
+    }
+    
+    // Apply mood effects
+    switch (this.systemState.mood) {
+      case 'happy':
+        particle.size *= 1.1;  // Larger particles
+        particle.opacity = Math.min(1, particle.opacity * 1.2); // Brighter
+        break;
+        
+      case 'concerned':
+        // More subdued
+        particle.size *= 0.9;
+        break;
+        
+      case 'excited':
+        // Faster movement
+        const excitementFactor = 1.2;
+        particle.x += (particle.x - particle.baseX) * 0.1 * excitementFactor;
+        particle.y += (particle.y - particle.baseY) * 0.1 * excitementFactor;
+        break;
+        
+      case 'focused':
+        // More organized pattern
+        const organizationFactor = 0.9;
+        particle.x = particle.x * (1 - organizationFactor) + particle.baseX * organizationFactor;
+        particle.y = particle.y * (1 - organizationFactor) + particle.baseY * organizationFactor;
+        break;
+    }
+    
+    // Apply energy level effects
+    const energyFactor = this.getEnergyFactor();
+    particle.size *= energyFactor;
+    
+    // Apply opacity based on energy
+    particle.opacity = Math.max(0.2, Math.min(1, particle.opacity * energyFactor));
+  }
+  
+  // Apply effects from user interaction
+  applyUserInteraction(particle, canvasWidth, canvasHeight) {
+    const mouseX = this.systemState.userInteraction.mousePosition.x;
+    const mouseY = this.systemState.userInteraction.mousePosition.y;
+    
+    // Convert particle position to canvas coordinates
+    const particleCanvasX = (particle.x + 1) * 0.5 * canvasWidth;
+    const particleCanvasY = (particle.y + 1) * 0.5 * canvasHeight;
+    
+    // Calculate distance to mouse
+    const dx = particleCanvasX - mouseX;
+    const dy = particleCanvasY - mouseY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Only affect particles within a certain radius
+    const interactionRadius = Math.min(canvasWidth, canvasHeight) * 0.2;
+    if (distance < interactionRadius) {
+      // Calculate factor based on distance (stronger effect closer to mouse)
+      const factor = (1 - distance / interactionRadius) * this.config.interactivity;
+      
+      // Repel particles from mouse
+      const repelStrength = 0.01 * factor;
+      particle.x += dx / distance * repelStrength;
+      particle.y += dy / distance * repelStrength;
+      
+      // Increase size and glow near mouse
+      particle.size *= (1 + factor * 0.5);
+      particle.glowFactor *= (1 + factor);
+    }
+  }
+  
+  // Get energy factor based on system energy state
+  getEnergyFactor() {
+    switch (this.systemState.energy) {
+      case 'high':
+        return 1.2;
+      case 'medium':
+        return 1.0;
+      case 'low':
+        return 0.8;
+      default:
+        return 1.0;
+    }
+  }
+  
+  // Set the response state of the system
+  setResponseState(state) {
+    this.systemState.responseState = state;
+    
+    // Apply immediate effects based on state change
+    if (state === 'thinking') {
+      this.systemState.coherence = 0.4; // Reduce coherence
+    } else if (state === 'responding') {
+      this.systemState.coherence = 0.8; // Increase coherence
+    }
+    
+    return this.systemState;
+  }
+  
+  // Set the mood of the system
+  setMood(mood) {
+    this.systemState.mood = mood;
+    return this.systemState;
+  }
+  
+  // Set the energy level
+  setEnergy(energy) {
+    this.systemState.energy = energy;
+    return this.systemState;
+  }
+  
+  // Set the pattern type
+  setPatternType(patternType) {
+    if (['quantum', 'field', 'spiral', 'wave', 'radial'].includes(patternType)) {
+      this.config.patternType = patternType;
+      
+      // Reinitialize particles for new pattern
+      this.initialize();
+    }
+    return this.config.patternType;
+  }
+  
+  // Handle user interaction
+  handleInteraction(mouseX, mouseY, canvasWidth, canvasHeight) {
+    // Normalize coordinates to -1 to 1 range
+    const normalizedX = (mouseX / canvasWidth) * 2 - 1;
+    const normalizedY = (mouseY / canvasHeight) * 2 - 1;
+    
+    this.systemState.userInteraction = {
+      mousePosition: { x: mouseX, y: mouseY },
+      active: true,
+      lastActivity: Date.now()
+    };
+    
+    // Create a ripple effect at cursor location
+    this.createInteractionRipple(normalizedX, normalizedY);
+    
+    return this.systemState.userInteraction;
+  }
+  
+  // Create ripple effect
+  createInteractionRipple(x, y) {
+    // Affect nearby particles
+    for (let i = 0; i < this.particles.length; i++) {
+      const particle = this.particles[i];
+      
+      // Calculate distance
+      const dx = particle.x - x;
+      const dy = particle.y - y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Apply ripple to nearby particles
+      if (distance < 0.5) {
+        // Store original position if not already storing it
+        if (!particle.originalX) {
+          particle.originalX = particle.x;
+          particle.originalY = particle.y;
+        }
+        
+        // Schedule return to original position
+        setTimeout(() => {
+          // Gradually return to original position
+          const returnToOriginal = () => {
+            if (!particle.originalX) return;
+            
+            particle.x += (particle.originalX - particle.x) * 0.1;
+            particle.y += (particle.originalY - particle.y) * 0.1;
+            
+            // If close enough, clear original position
+            if (Math.abs(particle.x - particle.originalX) < 0.01 &&
+                Math.abs(particle.y - particle.originalY) < 0.01) {
+              delete particle.originalX;
+              delete particle.originalY;
+            } else {
+              requestAnimationFrame(returnToOriginal);
+            }
+          };
+          
+          returnToOriginal();
+        }, 1000);
+      }
+    }
+  }
+}
+
+// React component for quantum avatar
+const QuantumAvatar = ({
+  width = 300,
+  height = 300,
+  options = {},
+  className = '',
+  responseState = 'idle',
+  mood = 'neutral',
+  energy = 'medium',
+  onInteraction = null
+}) => {
+  const canvasRef = useRef(null);
+  const particleSystemRef = useRef(null);
+  const animationFrameRef = useRef(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  
+  // Initialize the particle system
+  useEffect(() => {
+    // Create new particle system
+    particleSystemRef.current = new QuantumParticleSystem({
+      ...options,
+      // Apply theme settings
+      colorPalette: options.colorPalette || [
+        '#36EAFF', // cyan
+        '#FF36D0', // magenta
+        '#36FF42', // green
+        '#FFDE36', // yellow
+        '#3654FF'  // blue
+      ]
+    });
+    
+    setIsInitialized(true);
+    
+    // Start animation loop
+    startAnimationLoop();
+    
+    // Cleanup on component unmount
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+  
+  // Update when props change
+  useEffect(() => {
+    if (!isInitialized || !particleSystemRef.current) return;
+    
+    // Update particle system state based on props
+    particleSystemRef.current.setResponseState(responseState);
+    particleSystemRef.current.setMood(mood);
+    particleSystemRef.current.setEnergy(energy);
+    
+  }, [responseState, mood, energy, isInitialized]);
+  
+  // Start the animation loop
+  const startAnimationLoop = () => {
+    if (!canvasRef.current || !particleSystemRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const particleSystem = particleSystemRef.current;
+    
+    // Set canvas dimensions
+    canvas.width = width;
+    canvas.height = height;
+    
+    // Animation loop
+    const animate = (timestamp) => {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Update particle system
+      particleSystem.update(timestamp, canvas.width, canvas.height);
+      
+      // Draw background glow effect
+      drawBackgroundGlow(ctx, canvas.width, canvas.height, timestamp);
+      
+      // Draw particles with glow effect
+      drawParticles(ctx, particleSystem.particles, canvas.width, canvas.height);
+      
+      // Apply post-processing effects
+      applyPostProcessing(ctx, canvas.width, canvas.height, timestamp);
+      
+      // Continue animation loop
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+    
+    // Start animation
+    animationFrameRef.current = requestAnimationFrame(animate);
+  };
+  
+  // Draw background glow effect
+  const drawBackgroundGlow = (ctx, width, height, timestamp) => {
+    const particleSystem = particleSystemRef.current;
+    if (!particleSystem) return;
+    
+    // Create a subtle background glow based on system state
+    const { responseState, quantum } = particleSystem.systemState;
+    
+    // Create gradient
+    const gradient = ctx.createRadialGradient(
+      width / 2, height / 2, 0,
+      width / 2, height / 2, width / 2
+    );
+    
+    // Set gradient colors based on state
+    let primaryColor, secondaryColor, tertiaryColor;
+    switch (responseState) {
+      case 'thinking':
+        primaryColor = 'rgba(0, 100, 255, 0.1)';
+        secondaryColor = 'rgba(100, 0, 255, 0.03)';
+        tertiaryColor = 'rgba(0, 0, 0, 0)';
+        break;
+      case 'responding':
+        primaryColor = 'rgba(0, 255, 200, 0.1)';
+        secondaryColor = 'rgba(0, 150, 255, 0.03)';
+        tertiaryColor = 'rgba(0, 0, 0, 0)';
+        break;
+      case 'listening':
+        primaryColor = 'rgba(255, 100, 255, 0.1)';
+        secondaryColor = 'rgba(100, 100, 255, 0.03)';
+        tertiaryColor = 'rgba(0, 0, 0, 0)';
+        break;
+      default:
+        primaryColor = 'rgba(50, 50, 255, 0.05)';
+        secondaryColor = 'rgba(50, 200, 255, 0.02)';
+        tertiaryColor = 'rgba(0, 0, 0, 0)';
+    }
+    
+    gradient.addColorStop(0, primaryColor);
+    gradient.addColorStop(0.5, secondaryColor);
+    gradient.addColorStop(1, tertiaryColor);
+    
+    // Apply gradient
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    // Add pulsing quantum effect
+    if (quantum && quantum.superposition > 0.6) {
+      const pulseOpacity = (quantum.superposition - 0.6) * 2.5 * 
+                          (0.5 + 0.5 * Math.sin(timestamp * 0.001));
+      
+      ctx.fillStyle = `rgba(100, 255, 255, ${pulseOpacity * 0.05})`;
+      ctx.beginPath();
+      ctx.arc(width / 2, height / 2, width * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+  
+  // Draw particles with glow effect
+  const drawParticles = (ctx, particles, width, height, timestamp) => {
+    if (!particles) return;
+    
+    // Draw connections between particles
+    drawConnections(ctx, particles, width, height);
+    
+    // Draw each particle
+    particles.forEach(particle => {
+      // Transform particle coordinates from -1,1 range to canvas coordinates
+      const x = (particle.x + 1) * 0.5 * width;
+      const y = (particle.y + 1) * 0.5 * height;
+      
+      // Apply glow effect
+      const glowRadius = particle.size * 10 * particle.glowFactor;
+      const glowGradient = ctx.createRadialGradient(
+        x, y, 0,
+        x, y, glowRadius
+      );
+      
+      // Parse particle color
+      const r = parseInt(particle.color.slice(1, 3), 16);
+      const g = parseInt(particle.color.slice(3, 5), 16);
+      const b = parseInt(particle.color.slice(5, 7), 16);
+      
+      glowGradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${particle.opacity})`);
+      glowGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      
+      ctx.fillStyle = glowGradient;
+      ctx.beginPath();
+      ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Draw particle core
+      ctx.fillStyle = particle.color;
+      ctx.beginPath();
+      ctx.arc(x, y, particle.size * 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  };
+  
+  // Draw connections between nearby particles
+  const drawConnections = (ctx, particles, width, height) => {
+    const connectionThreshold = 0.25; // Maximum distance for connection in -1,1 space
+    
+    ctx.lineWidth = 1;
+    
+    // Draw connections between nearby particles
+    for (let i = 0; i < particles.length; i++) {
+      const p1 = particles[i];
+      const p1x = (p1.x + 1) * 0.5 * width;
+      const p1y = (p1.y + 1) * 0.5 * height;
+      
+      // Only process some connections for performance
+      for (let j = i + 1; j < particles.length; j += 3) {
+        const p2 = particles[j];
+        
+        // Calculate squared distance in normalized space
+        const dx = p1.x - p2.x;
+        const dy = p1.y - p2.y;
+        const distSq = dx * dx + dy * dy;
+        
+        // Connect if close enough
+        if (distSq < connectionThreshold * connectionThreshold) {
+          const p2x = (p2.x + 1) * 0.5 * width;
+          const p2y = (p2.y + 1) * 0.5 * height;
+          
+          // Calculate opacity based on distance
+          const opacity = (1 - Math.sqrt(distSq) / connectionThreshold) * 0.5 * 
+                         p1.opacity * p2.opacity;
+          
+          // Create gradient for connection
+          const gradient = ctx.createLinearGradient(p1x, p1y, p2x, p2y);
+          gradient.addColorStop(0, `rgba(${parseInt(p1.color.slice(1, 3), 16)}, 
+                                       ${parseInt(p1.color.slice(3, 5), 16)}, 
+                                       ${parseInt(p1.color.slice(5, 7), 16)}, 
+                                       ${opacity})`);
+          gradient.addColorStop(1, `rgba(${parseInt(p2.color.slice(1, 3), 16)}, 
+                                       ${parseInt(p2.color.slice(3, 5), 16)}, 
+                                       ${parseInt(p2.color.slice(5, 7), 16)}, 
+                                       ${opacity})`);
+          
+          ctx.strokeStyle = gradient;
+          ctx.beginPath();
+          ctx.moveTo(p1x, p1y);
+          ctx.lineTo(p2x, p2y);
+          ctx.stroke();
+        }
+      }
+    }
+  };
+  
+  // Apply post-processing effects
+  const applyPostProcessing = (ctx, width, height, timestamp) => {
+    // Apply subtle noise effect
+    if (Math.random() < 0.1) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.01)';
+      for (let i = 0; i < 20; i++) {
+        const x = Math.random() * width;
+        const y = Math.random() * height;
+        const size = Math.random() * 2;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    
+    // Apply vignette effect
+    const vignette = ctx.createRadialGradient(
+      width / 2, height / 2, width * 0.3,
+      width / 2, height / 2, width * 0.7
+    );
+    vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    vignette.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+    
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
+  };
+  
+  // Handle mouse interactions
+  const handleMouseMove = (e) => {
+    if (!particleSystemRef.current || !canvasRef.current) return;
+    
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    particleSystemRef.current.handleInteraction(mouseX, mouseY, width, height);
+  };
+  
+  // Handle pattern type change
+  const changePatternType = (type) => {
+    if (!particleSystemRef.current) return;
+    particleSystemRef.current.setPatternType(type);
+  };
+  
+  return (
+    <div 
+      className={`quantum-avatar ${className}`}
+      style={{ 
+        width, 
+        height, 
+        position: 'relative',
+        borderRadius: '50%',
+        overflow: 'hidden'
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        width={width}
+        height={height}
+        onMouseMove={handleMouseMove}
+        onClick={() => changePatternType(['quantum', 'field', 'spiral', 'wave', 'radial'][Math.floor(Math.random() * 5)])}
+        style={{
+          borderRadius: '50%',
+          cursor: 'pointer'
+        }}
+      />
+    </div>
+  );
+};
+
+export default QuantumAvatar;

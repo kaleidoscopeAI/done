@@ -1,0 +1,1433 @@
+    def _get_system_status(self) -> Dict[str, Any]:
+        """Get system status information"""
+        status = {
+            "llm": {
+                "available": self.llm is not None,
+                "model": self.config["llm"].get("model", "Not loaded"),
+                "provider": self.config["llm"].get("provider", "None")
+            },
+            "quantum": {
+                "available": self.quantum is not None,
+                "running": self.quantum.running.is_set() if self.quantum else False,
+                "node_count": len(self.quantum.state.nodes) if self.quantum else 0,
+                "connection_count": len(self.quantum.state.connections) if self.quantum else 0
+            },
+            "tasks": {
+                "active": len(self.tasks),
+                "history": len(self.task_history),
+                "total_completed": sum(1 for task in self.task_history if task.status == "completed"),
+                "total_errors": sum(1 for task in self.task_history if task.status == "error")
+            },
+            "system": {
+                "uptime": time.time() - self.start_time,
+                "version": "1.0.0",
+                "timestamp": time.time()
+            }
+        }
+        
+        return status
+    
+    def _get_tasks_data(self) -> Dict[str, Any]:
+        """Get task data for API/SocketIO"""
+        with self.tasks_lock:
+            active_tasks = [task.to_dict() for task in self.tasks.values()]
+            history = [task.to_dict() for task in self.task_history]
+        
+        return {
+            "active": active_tasks,
+            "history": history
+        }
+    
+    def _emit_system_status(self) -> None:
+        """Emit system status via SocketIO"""
+        if not self.socketio:
+            return
+        
+        status = self._get_system_status()
+        self.socketio.emit('system_status', status)
+    
+    def _emit_task_update(self, task_id: str) -> None:
+        """Emit task update via SocketIO"""
+        if not self.socketio:
+            return
+        
+        with self.tasks_lock:
+            if task_id in self.tasks:
+                task_data = self.tasks[task_id].to_dict()
+                self.socketio.emit('task_update', task_data)
+    
+    def _create_task(self, task_type: str, metadata: Dict[str, Any] = None) -> str:
+        """Create a new background task"""
+        task_id = str(uuid.uuid4())
+        
+        with self.tasks_lock:
+            task = TaskStatus(
+                id=task_id,
+                type=task_type,
+                metadata=metadata or {}
+            )
+            self.tasks[task_id] = task
+        
+        # Emit task creation
+        if self.socketio:
+            self.socketio.emit('task_created', {
+                "task_id": task_id,
+                "type": task_type
+            })
+        
+        return task_id
+    
+    def _update_task(self, task_id: str, **kwargs) -> None:
+        """Update task status"""
+        with self.tasks_lock:
+            if task_id not in self.tasks:
+                return
+            
+            task = self.tasks[task_id]
+            
+            for key, value in kwargs.items():
+                if hasattr(task, key):
+                    setattr(task, key, value)
+        
+        # Emit task update
+        self._emit_task_update(task_id)
+    
+    def _complete_task(self, task_id: str, result: Any = None) -> None:
+        """Mark task as completed"""
+        with self.tasks_lock:
+            if task_id not in self.tasks:
+                return
+            
+            task = self.tasks[task_id]
+            task.status = "completed"
+            task.progress = 1.0
+            task.result = result
+            task.end_time = time.time()
+            
+            # Move to history
+            self.task_history.insert(0, task)
+            del self.tasks[task_id]
+            
+            # Limit history size
+            max_history = self.config.get("web", {}).get("task_history_limit", 100)
+            if len(self.task_history) > max_history:
+                self.task_history = self.task_history[:max_history]
+        
+        # Emit task completion
+        if self.socketio:
+            self.socketio.emit('task_completed', {
+                "task_id": task_id,
+                "result": result
+            })
+    
+    def _fail_task(self, task_id: str, error: str) -> None:
+        """Mark task as failed"""
+        with self.tasks_lock:
+            if task_id not in self.tasks:
+                return
+            
+            task = self.tasks[task_id]
+            task.status = "error"
+            task.error = error
+            task.end_time = time.time()
+            
+            # Move to history
+            self.task_history.insert(0, task)
+            del self.tasks[task_id]
+            
+            # Limit history size
+            max_history = self.config.get("web", {}).get("task_history_limit", 100)
+            if len(self.task_history) > max_history:
+                self.task_history = self.task_history[:max_history]
+        
+        # Emit task failure
+        if self.socketio:
+            self.socketio.emit('task_failed', {
+                "task_id": task_id,
+                "error": error
+            })
+    
+    def _start_background_task(self, func: Callable, task_id: str, *args, **kwargs) -> None:
+        """Start a background task"""
+        if self.socketio:
+            self.socketio.start_background_task(func, task_id, *args, **kwargs)
+        else:
+            thread = threading.Thread(
+                target=func,
+                args=(task_id, *args),
+                kwargs=kwargs,
+                daemon=True
+            )
+            thread.start()
+    
+    def _process_text_task(self, task_id: str, text: str, mode: str = "llm") -> None:
+        """Process text with LLM and/or quantum interface"""
+        try:
+            # Update task status
+            self._update_task(task_id, status="running")
+            
+            result = {}
+            
+            # Process with LLM if requested
+            if mode in ("llm", "both") and self.llm:
+                self._update_task(task_id, progress=0.2)
+                
+                system_prompt = """
+                Analyze the following text and provide insights.
+                Focus on key concepts, relationships, and patterns.
+                If the text appears to be code, provide an analysis of its structure and purpose.
+                """
+                
+                messages = [
+                    Message(role="system", content=system_prompt),
+                    Message(role="user", content=text)
+                ]
+                
+                llm_result = self.llm.chat_complete(messages)
+                
+                result["llm"] = {
+                    "text": llm_result.text,
+                    "tokens_used": llm_result.tokens_used,
+                    "generation_time": llm_result.generation_time
+                }
+                
+                self._update_task(task_id, progress=0.6)
+            
+            # Process with quantum interface if requested
+            if mode in ("quantum", "both") and self.quantum:
+                self._update_task(task_id, progress=0.7)
+                
+                quantum_result = self.quantum.process_text(text)
+                
+                result["quantum"] = quantum_result
+                
+                self._update_task(task_id, progress=0.9)
+            
+            # Complete task
+            self._complete_task(task_id, result)
+        
+        except Exception as e:
+            logger.error(f"Error processing text: {e}")
+            self._fail_task(task_id, str(e))
+    
+    def _process_file_task(self, task_id: str, file_path: str) -> None:
+        """Process an uploaded file"""
+        try:
+            # Update task status
+            self._update_task(task_id, status="running")
+            
+            # Get file extension
+            _, ext = os.path.splitext(file_path)
+            ext = ext.lower().lstrip('.')
+            
+            # Determine file type
+            file_type = "unknown"
+            if ext in ('py', 'js', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rb', 'php'):
+                file_type = "code"
+            elif ext in ('txt', 'md', 'rst', 'html', 'xml', 'json', 'yaml', 'yml'):
+                file_type = "text"
+            elif ext in ('pdf', 'doc', 'docx', 'odt', 'rtf'):
+                file_type = "document"
+            elif ext in ('exe', 'dll', 'so', 'dylib', 'bin'):
+                file_type = "binary"
+            
+            self._update_task(task_id, progress=0.1, metadata={"file_type": file_type})
+            
+            # Read file content
+            content = None
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+            except Exception as e:
+                logger.warning(f"Error reading file as text: {e}")
+                content = None
+            
+            self._update_task(task_id, progress=0.2)
+            
+            result = {
+                "file_path": file_path,
+                "file_type": file_type,
+                "size": os.path.getsize(file_path),
+                "content_available": content is not None
+            }
+            
+            # Process with LLM if text content is available
+            if content and self.llm:
+                self._update_task(task_id, progress=0.3)
+                
+                system_prompt = ""
+                
+                if file_type == "code":
+                    system_prompt = """
+                    Analyze the following code file and provide insights.
+                    Focus on:
+                    1. Overall purpose of the code
+                    2. Key components and their relationships
+                    3. Notable patterns or algorithms
+                    4. Potential issues or areas for improvement
+                    """
+                else:
+                    system_prompt = """
+                    Analyze the following file content and provide insights.
+                    Focus on key concepts, relationships, and patterns.
+                    Summarize the content's main points and purpose.
+                    """
+                
+                messages = [
+                    Message(role="system", content=system_prompt),
+                    Message(role="user", content=content)
+                ]
+                
+                llm_result = self.llm.chat_complete(messages)
+                
+                result["analysis"] = {
+                    "text": llm_result.text,
+                    "tokens_used": llm_result.tokens_used,
+                    "generation_time": llm_result.generation_time
+                }
+                
+                self._update_task(task_id, progress=0.7)
+            
+            # Process with quantum interface if content is available
+            if content and self.quantum:
+                self._update_task(task_id, progress=0.8)
+                
+                quantum_result = self.quantum.process_text(content[:10000])  # Limit to first 10K chars
+                
+                result["quantum"] = quantum_result
+                
+                self._update_task(task_id, progress=0.9)
+            
+            # Complete task
+            self._complete_task(task_id, result)
+        
+        except Exception as e:
+            logger.error(f"Error processing file: {e}")
+            self._fail_task(task_id, str(e))
+    
+    def start(self, host: Optional[str] = None, port: Optional[int] = None, 
+             debug: Optional[bool] = None) -> None:
+        """Start the web interface"""
+        # Set start time
+        self.start_time = time.time()
+        
+        # Start quantum interface if available
+        if self.quantum:
+            try:
+                self.quantum.start()
+                logger.info("Quantum interface started")
+            except Exception as e:
+                logger.error(f"Error starting quantum interface: {e}")
+        
+        # Validate host and port
+        host = host or self.config.get("host", DEFAULT_HOST)
+        port = port or self.config.get("port", DEFAULT_PORT)
+        debug = debug if debug is not None else self.config.get("web", {}).get("debug", False)
+        
+        # Run Flask app
+        if self.app and self.socketio:
+            logger.info(f"Starting web interface on http://{host}:{port}")
+            
+            try:
+                self.socketio.run(
+                    self.app,
+                    host=host,
+                    port=port,
+                    debug=debug,
+                    use_reloader=False
+                )
+            except Exception as e:
+                logger.error(f"Error running web interface: {e}")
+        else:
+            logger.error("Flask/SocketIO not available, cannot start web interface")
+    
+    def stop(self) -> None:
+        """Stop the web interface"""
+        # Stop quantum interface if available
+        if self.quantum:
+            try:
+                self.quantum.stop()
+                logger.info("Quantum interface stopped")
+            except Exception as e:
+                logger.error(f"Error stopping quantum interface: {e}")
+
+# ===== Create default HTML template =====
+def create_default_html() -> str:
+    """Create default HTML template"""
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaleidoscope AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #6f42c1;
+            --secondary-color: #17a2b8;
+            --dark-color: #343a40;
+            --light-color: #f8f9fa;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .navbar {
+            background-color: var(--primary-color);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .navbar-brand {
+            font-weight: bold;
+            color: white !important;
+        }
+        
+        .card {
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            border: none;
+        }
+        
+        .card-header {
+            border-radius: 8px 8px 0 0 !important;
+            font-weight: bold;
+            padding: 12px 20px;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-secondary {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        
+        .quantum-canvas {
+            width: 100%;
+            height: 500px;
+            background-color: #000;
+            border-radius: 8px;
+        }
+        
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 30px;
+        }
+        
+        .task-item {
+            transition: background-color 0.3s;
+            cursor: pointer;
+        }
+        
+        .task-item:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .analysis-result {
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        
+        .sidebar {
+            position: fixed;
+            top: 56px;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            padding: 0;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.1);
+            background-color: #fff;
+            transition: all 0.3s;
+        }
+        
+        .main-content {
+            margin-left: 250px;
+            transition: all 0.3s;
+        }
+        
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            
+            .sidebar.show {
+                transform: translateX(0);
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+        }
+        
+        .quantum-node {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--primary-color);
+            transition: all 0.3s;
+        }
+        
+        .quantum-connection {
+            position: absolute;
+            height: 1px;
+            background-color: rgba(255, 255, 255, 0.5);
+            transform-origin: 0 0;
+            transition: all 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-braces"></i> Kaleidoscope AI
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#" id="nav-dashboard">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-process-text">Process Text</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-upload-file">Upload File</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-quantum">Quantum Visualization</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-settings">Settings</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4 mb-5">
+        <!-- Dashboard Section -->
+        <div id="section-dashboard" class="section">
+            <h2>System Dashboard</h2>
+            <div class="row mt-4">
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            LLM Status
+                        </div>
+                        <div class="card-body" id="llm-status">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-info text-white">
+                            Quantum Status
+                        </div>
+                        <div class="card-body" id="quantum-status">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            Tasks
+                        </div>
+                        <div class="card-body" id="tasks-status">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white">
+                            System
+                        </div>
+                        <div class="card-body" id="system-status">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-4">
+                <div class="card-header bg-dark text-white">
+                    Recent Tasks
+                </div>
+                <div class="card-body">
+                    <div id="tasks-list" class="list-group">
+                        <div class="text-center py-3">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading tasks...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Process Text Section -->
+        <div id="section-process-text" class="section d-none">
+            <h2>Process Text</h2>
+            <div class="card mt-4">
+                <div class="card-header bg-primary text-white">
+                    Input Text
+                </div>
+                <div class="card-body">
+                    <form id="text-form">
+                        <div class="mb-3">
+                            <label for="text-input" class="form-label">Enter text to process</label>
+                            <textarea class="form-control" id="text-input" rows="8" placeholder="Enter text to analyze..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Processing Mode</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="process-mode" id="mode-llm" value="llm" checked>
+                                <label class="form-check-label" for="mode-llm">
+                                    LLM Analysis
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="process-mode" id="mode-quantum" value="quantum">
+                                <label class="form-check-label" for="mode-quantum">
+                                    Quantum Network Integration
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="process-mode" id="mode-both" value="both">
+                                <label class="form-check-label" for="mode-both">
+                                    Both (LLM + Quantum)
+                                </label>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="process-text-btn">Process Text</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div id="text-result-container" class="d-none mt-4">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        Analysis Results
+                    </div>
+                    <div class="card-body">
+                        <div id="text-result-spinner" class="text-center py-3">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Processing text...</p>
+                        </div>
+                        <div id="text-result-content" class="d-none">
+                            <!-- Results will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Upload File Section -->
+        <div id="section-upload-file" class="section d-none">
+            <h2>Upload File</h2>
+            <div class="card mt-4">
+                <div class="card-header bg-info text-white">
+                    Upload File
+                </div>
+                <div class="card-body">
+                    <form id="upload-form">
+                        <div class="mb-3">
+                            <label for="file-input" class="form-label">Select file to upload</label>
+                            <input class="form-control" type="file" id="file-input">
+                            <div class="form-text">Upload code files, text documents, or binary files for analysis.</div>
+                        </div>
+                        <button type="submit" class="btn btn-info text-white" id="upload-file-btn">Upload & Analyze</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div id="file-result-container" class="d-none mt-4">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        File Analysis Results
+                    </div>
+                    <div class="card-body">
+                        <div id="file-result-spinner" class="text-center py-3">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Processing file...</p>
+                        </div>
+                        <div id="file-result-content" class="d-none">
+                            <!-- Results will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quantum Visualization Section -->
+        <div id="section-quantum" class="section d-none">
+            <h2>Quantum Network Visualization</h2>
+            <div class="row mt-4">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header bg-dark text-white">
+                            Network Visualization
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="quantum-canvas" id="quantum-canvas"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header bg-info text-white">
+                            Network Stats
+                        </div>
+                        <div class="card-body" id="quantum-stats">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading...
+                        </div>
+                    </div>
+                    
+                    <div class="card mt-3">
+                        <div class="card-header bg-primary text-white">
+                            Recent Events
+                        </div>
+                        <div class="card-body" id="quantum-events">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-4">
+                <div class="card-header bg-success text-white">
+                    Node Details
+                </div>
+                <div class="card-body">
+                    <div id="node-details">
+                        <p class="text-muted">Select a node in the visualization to see its details.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Settings Section -->
+        <div id="section-settings" class="section d-none">
+            <h2>System Settings</h2>
+            <div class="card mt-4">
+                <div class="card-header bg-secondary text-white">
+                    LLM Settings
+                </div>
+                <div class="card-body">
+                    <form id="llm-settings-form">
+                        <div class="mb-3">
+                            <label for="llm-provider" class="form-label">Provider</label>
+                            <select class="form-select" id="llm-provider">
+                                <option value="LOCAL_LLAMACPP">Local LLaMA.cpp</option>
+                                <option value="OLLAMA">Ollama</option>
+                                <option value="OPENAI">OpenAI</option>
+                                <option value="ANTHROPIC">Anthropic</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="llm-model" class="form-label">Model</label>
+                            <input type="text" class="form-control" id="llm-model" placeholder="Model name or path">
+                        </div>
+                        <div class="mb-3">
+                            <label for="llm-temperature" class="form-label">Temperature: <span id="temperature-value">0.7</span></label>
+                            <input type="range" class="form-range" min="0" max="1" step="0.05" id="llm-temperature" value="0.7">
+                        </div>
+                        <div class="mb-3">
+                            <label for="llm-max-tokens" class="form-label">Max Tokens</label>
+                            <input type="number" class="form-control" id="llm-max-tokens" value="2048">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save LLM Settings</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mt-4">
+                <div class="card-header bg-info text-white">
+                    Quantum Settings
+                </div>
+                <div class="card-body">
+                    <form id="quantum-settings-form">
+                        <div class="mb-3">
+                            <label for="quantum-dimension" class="form-label">State Dimension</label>
+                            <input type="number" class="form-#!/usr/bin/env python3
+"""
+Kaleidoscope AI Web Interface
+=============================
+An integrated web interface for the Kaleidoscope AI system, combining
+the unified LLM module and quantum interface into a single application.
+
+This module provides a Flask-based web interface with SocketIO for real-time
+updates, supporting:
+- Text analysis with LLM models
+- Visualization of quantum network
+- Software analysis and generation
+- Interactive node exploration
+
+Usage:
+    python kaleidoscope_web.py [options]
+
+The web interface is built to be efficient, responsive, and error-tolerant.
+"""
+
+import os
+import sys
+import json
+import time
+import uuid
+import logging
+import threading
+import asyncio
+import argparse
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Union, Callable, Tuple
+from dataclasses import dataclass, field
+import tempfile
+import importlib
+from functools import wraps
+import traceback
+
+# Setup virtual environment if needed
+venv_dir = Path(".venv")
+if not venv_dir.exists():
+    import subprocess
+    import shutil
+    import venv
+    
+    print("Setting up virtual environment...")
+    venv.create(".venv", with_pip=True)
+    
+    # Get path to the python executable in the virtual environment
+    if sys.platform == "win32":
+        python_exe = Path(".venv/Scripts/python.exe")
+    else:
+        python_exe = Path(".venv/bin/python")
+    
+    # Install required packages
+    subprocess.run([
+        str(python_exe), "-m", "pip", "install",
+        "flask", "flask-socketio", "flask-cors", "eventlet", "requests", "numpy", "scipy"
+    ])
+    
+    # Add the virtual environment to sys.path
+    site_packages = list(Path(".venv").glob("**/site-packages"))[0]
+    sys.path.insert(0, str(site_packages))
+
+# Initialize logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("kaleidoscope_web.log")
+    ]
+)
+
+logger = logging.getLogger("kaleidoscopeWeb")
+
+# Try to import Flask-related modules
+try:
+    from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, Response
+    from flask_socketio import SocketIO, emit
+    from flask_cors import CORS
+    import eventlet
+    eventlet.monkey_patch()
+    
+    HAS_FLASK = True
+except ImportError as e:
+    logger.error(f"Flask/SocketIO not available: {e}")
+    logger.error("Try installing manually: pip install flask flask-socketio flask-cors eventlet")
+    HAS_FLASK = False
+
+# Import Kaleidoscope modules if available
+try:
+    from unified_llm import (
+        UnifiedLLM, ModelProvider, ModelConfig, UnifiedLLMConfig, 
+        Message, CompletionResult, create_default_config, find_llamacpp_model,
+        download_llm_model
+    )
+    HAS_UNIFIED_LLM = True
+except ImportError:
+    logger.warning("unified_llm module not available. LLM features will be limited.")
+    HAS_UNIFIED_LLM = False
+
+try:
+    from quantum_interface import (
+        QuantumInterface, QuantumConfig, NodeType, ConnectionType,
+        QuantumState, QuantumNode, QuantumConnection, QuantumNetworkEvent
+    )
+    HAS_QUANTUM = True
+except ImportError:
+    logger.warning("quantum_interface module not available. Quantum features will be limited.")
+    HAS_QUANTUM = False
+
+# ===== Constants =====
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 5000
+DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/kaleidoscope/config.json")
+DEFAULT_DATA_DIR = os.path.expanduser("~/.local/share/kaleidoscope/data")
+DEFAULT_UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "kaleidoscope_uploads")
+
+# ===== Main Application Classes =====
+
+@dataclass
+class TaskStatus:
+    """Status of a background task"""
+    id: str
+    type: str
+    status: str = "pending"  # pending, running, completed, error
+    progress: float = 0.0
+    result: Any = None
+    error: Optional[str] = None
+    start_time: float = field(default_factory=time.time)
+    end_time: Optional[float] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        return {
+            "id": self.id,
+            "type": self.type,
+            "status": self.status,
+            "progress": self.progress,
+            "result": self.result,
+            "error": self.error,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration": (self.end_time - self.start_time) if self.end_time else (time.time() - self.start_time),
+            "metadata": self.metadata
+        }
+
+class KaleidoscopeWeb:
+    """Main web interface for Kaleidoscope AI"""
+    
+    def __init__(self, config_path: Optional[str] = None, 
+                data_dir: Optional[str] = None):
+        """Initialize the Kaleidoscope Web interface"""
+        self.config_path = config_path or DEFAULT_CONFIG_PATH
+        self.data_dir = data_dir or DEFAULT_DATA_DIR
+        self.upload_dir = DEFAULT_UPLOAD_DIR
+        
+        # Create directories
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.upload_dir, exist_ok=True)
+        
+        # Load configuration
+        self.config = self._load_config()
+        
+        # Initialize components
+        self.llm = self._init_llm() if HAS_UNIFIED_LLM else None
+        self.quantum = self._init_quantum() if HAS_QUANTUM else None
+        
+        # Task management
+        self.tasks = {}
+        self.tasks_lock = threading.RLock()
+        self.task_history = []
+        
+        # Initialize Flask app
+        self.app = self._init_flask_app() if HAS_FLASK else None
+        self.socketio = None
+        
+        # Set up routes
+        if self.app:
+            self._setup_routes()
+            self._setup_socketio()
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from file"""
+        config = {
+            "data_dir": self.data_dir,
+            "upload_dir": self.upload_dir,
+            "host": DEFAULT_HOST,
+            "port": DEFAULT_PORT,
+            "llm": {
+                "provider": "LOCAL_LLAMACPP",
+                "model": "mistral-7b-instruct-v0.2",
+                "temperature": 0.7,
+                "max_tokens": 2048
+            },
+            "quantum": {
+                "dimension": 128,
+                "server_url": "ws://localhost:8765",
+                "decoherence_rate": 0.01
+            },
+            "web": {
+                "debug": False,
+                "enable_cors": True,
+                "task_history_limit": 100
+            }
+        }
+        
+        try:
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r') as f:
+                    loaded_config = json.load(f)
+                
+                # Merge loaded config with defaults
+                self._merge_config(config, loaded_config)
+                logger.info(f"Loaded configuration from {self.config_path}")
+        except Exception as e:
+            logger.error(f"Error loading configuration: {e}")
+        
+        return config
+    
+    def _merge_config(self, base_config: Dict[str, Any], overlay_config: Dict[str, Any]) -> None:
+        """Merge overlay config into base config"""
+        for key, value in overlay_config.items():
+            if isinstance(value, dict) and key in base_config and isinstance(base_config[key], dict):
+                self._merge_config(base_config[key], value)
+            else:
+                base_config[key] = value
+    
+    def _save_config(self) -> bool:
+        """Save configuration to file"""
+        try:
+            os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+            with open(self.config_path, 'w') as f:
+                json.dump(self.config, f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving configuration: {e}")
+            return False
+    
+    def _init_llm(self) -> Optional['UnifiedLLM']:
+        """Initialize the LLM module"""
+        try:
+            # Create model config
+            provider = ModelProvider[self.config["llm"]["provider"]]
+            model_name = self.config["llm"]["model"]
+            
+            # If model name not specified, try to find one
+            if not model_name:
+                model_path = find_llamacpp_model()
+                if model_path:
+                    model_name = str(model_path)
+                    logger.info(f"Found LLM model: {model_name}")
+            
+            # If still no model, try to download a default
+            if not model_name:
+                logger.info("No model found, downloading default model...")
+                model_path = download_llm_model("TheBloke/Mistral-7B-Instruct-v0.2-GGUF")
+                if model_path:
+                    model_name = str(model_path)
+                    logger.info(f"Downloaded model: {model_name}")
+                else:
+                    logger.error("Failed to download model")
+                    return None
+            
+            model_config = ModelConfig(
+                provider=provider,
+                model_name=model_name,
+                temperature=self.config["llm"].get("temperature", 0.7),
+                max_tokens=self.config["llm"].get("max_tokens", 2048)
+            )
+            
+            # Create LLM
+            llm_config = UnifiedLLMConfig(
+                model=model_config
+            )
+            
+            llm = UnifiedLLM(llm_config)
+            logger.info(f"Initialized LLM with model: {model_name}")
+            return llm
+        
+        except Exception as e:
+            logger.error(f"Error initializing LLM: {e}")
+            return None
+    
+    def _init_quantum(self) -> Optional['QuantumInterface']:
+        """Initialize the quantum interface"""
+        try:
+            # Create quantum config
+            quantum_config = QuantumConfig(
+                dimension=self.config["quantum"].get("dimension", 128),
+                server_url=self.config["quantum"].get("server_url", "ws://localhost:8765"),
+                decoherence_rate=self.config["quantum"].get("decoherence_rate", 0.01),
+                data_dir=os.path.join(self.data_dir, "quantum")
+            )
+            
+            # Create quantum interface
+            quantum = QuantumInterface(quantum_config, self.llm)
+            logger.info("Initialized quantum interface")
+            return quantum
+        
+        except Exception as e:
+            logger.error(f"Error initializing quantum interface: {e}")
+            return None
+    
+    def _init_flask_app(self) -> 'Flask':
+        """Initialize Flask app"""
+        # Get script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Create Flask app
+        app = Flask(
+            __name__,
+            static_folder=os.path.join(script_dir, "static"),
+            template_folder=os.path.join(script_dir, "templates")
+        )
+        
+        # Configure app
+        app.config["SECRET_KEY"] = os.urandom(24).hex()
+        app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
+        app.config["UPLOAD_FOLDER"] = self.upload_dir
+        
+        # Enable CORS if configured
+        if self.config.get("web", {}).get("enable_cors", True):
+            CORS(app)
+        
+        return app
+    
+    def _setup_socketio(self) -> None:
+        """Set up SocketIO for real-time updates"""
+        if not self.app:
+            return
+        
+        self.socketio = SocketIO(
+            self.app, 
+            cors_allowed_origins="*",
+            async_mode="eventlet"
+        )
+        
+        # Set up event handlers
+        @self.socketio.on('connect')
+        def handle_connect():
+            logger.debug(f"Client connected: {request.sid}")
+            # Send initial state
+            self._emit_system_status()
+        
+        @self.socketio.on('disconnect')
+        def handle_disconnect():
+            logger.debug(f"Client disconnected: {request.sid}")
+        
+        @self.socketio.on('ping')
+        def handle_ping():
+            emit('pong', {'timestamp': time.time()})
+        
+        @self.socketio.on('get_status')
+        def handle_get_status():
+            self._emit_system_status()
+        
+        @self.socketio.on('get_tasks')
+        def handle_get_tasks():
+            tasks_data = self._get_tasks_data()
+            emit('tasks_update', tasks_data)
+        
+        @self.socketio.on('process_text')
+        def handle_process_text(data):
+            text = data.get('text', '')
+            mode = data.get('mode', 'llm')  # llm, quantum, or both
+            
+            if not text:
+                emit('error', {'message': 'No text provided'})
+                return
+            
+            # Create background task
+            task_id = self._create_task(
+                task_type="process_text",
+                metadata={"text_sample": text[:100] + ("..." if len(text) > 100 else ""), "mode": mode}
+            )
+            
+            # Start task
+            self._start_background_task(self._process_text_task, task_id, text, mode)
+            
+            # Return task ID
+            emit('task_created', {'task_id': task_id, 'type': 'process_text'})
+    
+    def _setup_routes(self) -> None:
+        """Set up Flask routes"""
+        if not self.app:
+            return
+        
+        # Main routes
+        @self.app.route('/')
+        def index():
+            return render_template('index.html')
+        
+        @self.app.route('/api/status')
+        def get_status():
+            return jsonify(self._get_system_status())
+        
+        @self.app.route('/api/tasks')
+        def get_tasks():
+            return jsonify(self._get_tasks_data())
+        
+        @self.app.route('/api/tasks/<task_id>')
+        def get_task(task_id):
+            with self.tasks_lock:
+                if task_id in self.tasks:
+                    return jsonify(self.tasks[task_id].to_dict())
+                
+                # Check task history
+                for task in self.task_history:
+                    if task.id == task_id:
+                        return jsonify(task.to_dict())
+            
+            return jsonify({"error": "Task not found"}), 404
+        
+        @self.app.route('/api/process_text', methods=['POST'])
+        def process_text():
+            text = request.json.get('text', '')
+            mode = request.json.get('mode', 'llm')  # llm, quantum, or both
+            
+            if not text:
+                return jsonify({"error": "No text provided"}), 400
+            
+            # Create background task
+            task_id = self._create_task(
+                task_type="process_text",
+                metadata={"text_sample": text[:100] + ("..." if len(text) > 100 else ""), "mode": mode}
+            )
+            
+            # Start task
+            self._start_background_task(self._process_text_task, task_id, text, mode)
+            
+            # Return task ID
+            return jsonify({"task_id": task_id, "type": "process_text"})
+        
+        @self.app.route('/api/quantum/nodes', methods=['GET'])
+        def get_nodes():
+            if not self.quantum:
+                return jsonify({"error": "Quantum interface not available"}), 503
+            
+            try:
+                with self.quantum.state_lock:
+                    nodes = {
+                        node_id: node.to_dict()
+                        for node_id, node in self.quantum.state.nodes.items()
+                    }
+                
+                return jsonify({"nodes": nodes})
+            
+            except Exception as e:
+                logger.error(f"Error getting nodes: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/quantum/connections', methods=['GET'])
+        def get_connections():
+            if not self.quantum:
+                return jsonify({"error": "Quantum interface not available"}), 503
+            
+            try:
+                with self.quantum.state_lock:
+                    connections = [conn.to_dict() for conn in self.quantum.state.connections]
+                
+                return jsonify({"connections": connections})
+            
+            except Exception as e:
+                logger.error(f"Error getting connections: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/quantum/events', methods=['GET'])
+        def get_events():
+            if not self.quantum:
+                return jsonify({"error": "Quantum interface not available"}), 503
+            
+            try:
+                with self.quantum.state_lock:
+                    events = [event.to_dict() for event in self.quantum.state.events]
+                
+                return jsonify({"events": events})
+            
+            except Exception as e:
+                logger.error(f"Error getting events: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/quantum/metrics', methods=['GET'])
+        def get_metrics():
+            if not self.quantum:
+                return jsonify({"error": "Quantum interface not available"}), 503
+            
+            try:
+                with self.quantum.state_lock:
+                    metrics = self.quantum.state.metrics
+                
+                # Add additional metrics
+                network_properties = self.quantum.measure_network_properties()
+                metrics.update(network_properties)
+                
+                return jsonify({"metrics": metrics})
+            
+            except Exception as e:
+                logger.error(f"Error getting metrics: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/quantum/create_node', methods=['POST'])
+        def create_node():
+            if not self.quantum:
+                return jsonify({"error": "Quantum interface not available"}), 503
+            
+            try:
+                name = request.json.get('name', 'New Node')
+                node_type_str = request.json.get('node_type', 'SEMANTIC')
+                position = tuple(request.json.get('position', [0.0, 0.0, 0.0]))
+                metadata = request.json.get('metadata', {})
+                
+                # Convert node type string to enum
+                try:
+                    node_type = NodeType[node_type_str]
+                except KeyError:
+                    return jsonify({"error": f"Invalid node type: {node_type_str}"}), 400
+                
+                with self.quantum.state_lock:
+                    node_id = self.quantum.create_node(
+                        name=name,
+                        node_type=node_type,
+                        position=position,
+                        metadata=metadata
+                    )
+                
+                return jsonify({"node_id": node_id})
+            
+            except Exception as e:
+                logger.error(f"Error creating node: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/quantum/create_connection', methods=['POST'])
+        def create_connection():
+            if not self.quantum:
+                return jsonify({"error": "Quantum interface not available"}), 503
+            
+            try:
+                source_id = request.json.get('source_id')
+                target_id = request.json.get('target_id')
+                strength = request.json.get('strength', 0.5)
+                conn_type_str = request.json.get('connection_type', 'SEMANTIC')
+                metadata = request.json.get('metadata', {})
+                
+                if not source_id or not target_id:
+                    return jsonify({"error": "Source and target IDs must be provided"}), 400
+                
+                # Convert connection type string to enum
+                try:
+                    conn_type = ConnectionType[conn_type_str]
+                except KeyError:
+                    return jsonify({"error": f"Invalid connection type: {conn_type_str}"}), 400
+                
+                with self.quantum.state_lock:
+                    success = self.quantum.create_connection(
+                        source_id=source_id,
+                        target_id=target_id,
+                        strength=strength,
+                        conn_type=conn_type,
+                        metadata=metadata
+                    )
+                
+                if success:
+                    return jsonify({"success": True})
+                else:
+                    return jsonify({"error": "Failed to create connection"}), 500
+            
+            except Exception as e:
+                logger.error(f"Error creating connection: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/upload', methods=['POST'])
+        def upload_file():
+            if 'file' not in request.files:
+                return jsonify({"error": "No file part"}), 400
+            
+            file = request.files['file']
+            
+            if file.filename == '':
+                return jsonify({"error": "No selected file"}), 400
+            
+            try:
+                filename = os.path.basename(file.filename)
+                file_path = os.path.join(self.upload_dir, filename)
+                file.save(file_path)
+                
+                # Create task
+                task_id = self._create_task(
+                    task_type="process_file",
+                    metadata={"filename": filename, "file_path": file_path}
+                )
+                
+                # Start task
+                self._start_background_task(self._process_file_task, task_id, file_path)
+                
+                return jsonify({"task_id": task_id, "type": "process_file", "filename": filename})
+            
+            except Exception as e:
+                logger.error(f"Error uploading file: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.app.route('/api/settings', methods=['GET'])
+        def get_settings():
+            return jsonify({"config": self.config})
+        
+        @self.app.route('/api/settings', methods=['POST'])
+        def update_settings():
+            try:
+                new_config = request.json.get('config', {})
+                self._merge_config(self.config, new_config)
+                
+                # Save config
+                self._save_config()
+                
+                return jsonify({"success": True, "config": self.config})
+            
+            except Exception as e:
+                logger.error(f"Error updating settings: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        # Error handling
+        @self.app.errorhandler(404)
+        def not_found_error(e):
+            return jsonify({"error": "Not found"}), 404
+        
+        @self.app.errorhandler(500)
+        def internal_server_error(e):
+            return jsonify({"error": "Internal server error"}), 500
+    
+    def _get_system_status(self) -> Dict

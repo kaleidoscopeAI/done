@@ -1,0 +1,353 @@
+#include "feedback_system.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include "learning_feedback.h"
+
+// Initialize the feedback system
+FeedbackCollector* init_feedback_system(void) {
+    FeedbackCollector* collector = (FeedbackCollector*)malloc(sizeof(FeedbackCollector));
+    if (!collector) {
+        fprintf(stderr, "Error: Failed to allocate memory for feedback collector\n");
+        return NULL;
+    }
+    
+    collector->recent_feedback = NULL;
+    collector->count = 0;
+    collector->applied_count = 0;
+    collector->system_health_score = 0.8; // Start with a decent health score
+    
+    // Initialize learning feedback system
+    collector->learning_system = init_learning_feedback_system(100, 0.01);
+    if (!collector->learning_system) {
+        fprintf(stderr, "Error: Failed to initialize learning feedback system\n");
+        free(collector);
+        return NULL;
+    }
+    
+    printf("Feedback system initialized\n");
+    return collector;
+}
+
+// Add a new feedback entry
+FeedbackEntry* add_feedback(FeedbackCollector* collector,
+                           FeedbackSourceType source_type, uint64_t source_id,
+                           FeedbackTargetType target_type, uint64_t target_id,
+                           double score, FeedbackImpactLevel impact,
+                           const char* description) {
+    
+    if (!collector) {
+        fprintf(stderr, "Error: Null feedback collector\n");
+        return NULL;
+    }
+    
+    // Validate score range (-1.0 to 1.0)
+    if (score < -1.0 || score > 1.0) {
+        fprintf(stderr, "Warning: Feedback score %f out of range, clamping\n", score);
+        score = (score < -1.0) ? -1.0 : (score > 1.0 ? 1.0 : score);
+    }
+    
+    // Create the feedback entry
+    FeedbackEntry* entry = (FeedbackEntry*)malloc(sizeof(FeedbackEntry));
+    if (!entry) {
+        fprintf(stderr, "Error: Failed to allocate memory for feedback entry\n");
+        return NULL;
+    }
+    
+    // Initialize the entry
+    entry->id = collector->count + 1;
+    entry->source_type = source_type;
+    entry->source_id = source_id;
+    entry->target_type = target_type;
+    entry->target_id = target_id;
+    entry->score = score;
+    entry->impact = impact;
+    entry->timestamp = time(NULL);
+    entry->applied_timestamp = 0; // Not applied yet
+    
+    // Copy description with bounds checking
+    strncpy(entry->description, description, sizeof(entry->description) - 1);
+    entry->description[sizeof(entry->description) - 1] = '\0';
+    
+    // Add to linked list
+    entry->next = collector->recent_feedback;
+    collector->recent_feedback = entry;
+    collector->count++;
+    
+    // Record in learning feedback system
+    record_feedback(collector->learning_system, score);
+    
+    // Update system health based on feedback and impact
+    double impact_weight = (double)impact / 10.0;
+    collector->system_health_score = collector->system_health_score * 0.9 + (score * impact_weight) * 0.1;
+    
+    // Ensure health score stays in range
+    if (collector->system_health_score < 0.0) collector->system_health_score = 0.0;
+    if (collector->system_health_score > 1.0) collector->system_health_score = 1.0;
+    
+    printf("Added feedback (%lu): %s (score: %.2f, impact: %d)\n", 
+           entry->id, entry->description, entry->score, entry->impact);
+           
+    return entry;
+}
+
+// Process all pending feedback
+void process_all_feedback(FeedbackCollector* collector, MemoryGraph* graph) {
+    if (!collector || !graph) {
+        fprintf(stderr, "Error: Null collector or memory graph\n");
+        return;
+    }
+    
+    printf("Processing all pending feedback...\n");
+    
+    // Calculate adjusted learning rate
+    double adjusted_learning_rate = calculate_adjusted_learning_rate(collector->learning_system);
+    
+    // Track how many feedback entries we apply
+    uint64_t applied_count = 0;
+    
+    // Process each feedback entry that hasn't been applied yet
+    FeedbackEntry* current = collector->recent_feedback;
+    while (current) {
+        if (current->applied_timestamp == 0) {
+            switch (current->target_type) {
+                case FEEDBACK_TARGET_SUPERNODE: {
+                    // Get the super node and apply feedback
+                    SuperNode* supernode = (SuperNode*)current->target_id; // Direct pointer for simplicity
+                    if (supernode) {
+                        apply_feedback_to_supernode(collector, current, supernode);
+                        applied_count++;
+                    }
+                    break;
+                }
+                
+                case FEEDBACK_TARGET_NODE: {
+                    // Get the memory node and apply feedback
+                    MemoryNode* node = get_node(graph, current->target_id);
+                    if (node) {
+                        apply_feedback_to_node(collector, current, node);
+                        applied_count++;
+                    }
+                    break;
+                }
+                
+                case FEEDBACK_TARGET_CONNECTION: {
+                    // Extract source and target IDs from the description
+                    // The description format should be "connection:SOURCE_ID:TARGET_ID"
+                    uint64_t source_id = 0, target_id = 0;
+                    if (sscanf(current->description, "connection:%lu:%lu", &source_id, &target_id) == 2) {
+                        apply_feedback_to_connection(collector, current, graph, source_id, target_id);
+                        applied_count++;
+                    }
+                    break;
+                }
+                
+                case FEEDBACK_TARGET_SYSTEM: {
+                    apply_system_feedback(collector, current);
+                    applied_count++;
+                    break;
+                }
+                
+                case FEEDBACK_TARGET_ALGORITHM: {
+                    // For algorithm feedback, apply to learning rate
+                    integrate_learning_feedback(collector, current->score * 0.1);
+                    applied_count++;
+                    break;
+                }
+            }
+            
+            // Mark as applied
+            current->applied_timestamp = time(NULL);
+        }
+        
+        current = current->next;
+    }
+    
+    collector->applied_count += applied_count;
+    printf("Applied %lu feedback entries (total: %lu)\n", applied_count, collector->applied_count);
+}
+
+// Apply feedback to a super node
+void apply_feedback_to_supernode(FeedbackCollector* collector, FeedbackEntry* feedback, SuperNode* supernode) {
+    if (!collector || !feedback || !supernode) return;
+    
+    printf("Applying feedback to SuperNode %lu: %s\n", 
+           supernode->base_node.id, feedback->description);
+    
+    // Adjust super node properties based on feedback
+    double adjustment = feedback->score * (double)feedback->impact / 10.0;
+    
+    if (strstr(feedback->description, "learning") != NULL) {
+        // Adjust learning drive
+        supernode->base_node.learning_drive = (uint8_t)((double)supernode->base_node.learning_drive * (1.0 + adjustment));
+        printf("  Adjusted learning drive to %d\n", supernode->base_node.learning_drive);
+    }
+    else if (strstr(feedback->description, "energy") != NULL) {
+        // Adjust energy level
+        supernode->base_node.energy = (uint64_t)((double)supernode->base_node.energy * (1.0 + adjustment));
+        printf("  Adjusted energy to %lu\n", supernode->base_node.energy);
+    }
+    else if (strstr(feedback->description, "growth") != NULL) {
+        // Adjust growth drive
+        supernode->base_node.growth_drive = (uint8_t)((double)supernode->base_node.growth_drive * (1.0 + adjustment));
+        printf("  Adjusted growth drive to %d\n", supernode->base_node.growth_drive);
+    }
+    else if (strstr(feedback->description, "share") != NULL) {
+        // Adjust share drive
+        supernode->base_node.share_drive = (uint8_t)((double)supernode->base_node.share_drive * (1.0 + adjustment));
+        printf("  Adjusted share drive to %d\n", supernode->base_node.share_drive);
+    }
+    else if (strstr(feedback->description, "priority") != NULL) {
+        // Adjust priority level
+        supernode->priority_level = (uint64_t)((double)supernode->priority_level * (1.0 + adjustment));
+        printf("  Adjusted priority level to %lu\n", supernode->priority_level);
+    }
+}
+
+// Apply feedback to a memory node
+void apply_feedback_to_node(FeedbackCollector* collector, FeedbackEntry* feedback, MemoryNode* node) {
+    if (!collector || !feedback || !node) return;
+    
+    printf("Applying feedback to Node %lu: %s\n", node->id, feedback->description);
+    
+    // Adjust node activation based on feedback
+    double adjustment = feedback->score * (double)feedback->impact / 10.0;
+    
+    // Apply activation adjustment
+    float new_activation = node->activation * (1.0f + (float)adjustment);
+    
+    // Clamp activation to valid range
+    if (new_activation < 0.0f) new_activation = 0.0f;
+    if (new_activation > 1.0f) new_activation = 1.0f;
+    
+    node->activation = new_activation;
+    printf("  Adjusted node activation to %.2f\n", node->activation);
+}
+
+// Apply feedback to a connection between nodes
+void apply_feedback_to_connection(FeedbackCollector* collector, FeedbackEntry* feedback, 
+                                 MemoryGraph* graph, uint64_t source_id, uint64_t target_id) {
+    if (!collector || !feedback || !graph) return;
+    
+    printf("Applying feedback to connection between %lu and %lu: %s\n", 
+           source_id, target_id, feedback->description);
+    
+    // Find the source and target nodes
+    MemoryNode* source = get_node(graph, source_id);
+    MemoryNode* target = get_node(graph, target_id);
+    
+    if (!source || !target) {
+        fprintf(stderr, "Error: Source or target node not found\n");
+        return;
+    }
+    
+    // In this model, we assume strengthening or weakening connections
+    // is equivalent to adjusting the activation that propagates between them
+    
+    // Apply feedback to activate the target node based on the source node
+    float activation_boost = (float)(feedback->score * (double)feedback->impact / 10.0);
+    
+    // Propagate an adjusted amount of activation
+    float propagated_activation = source->activation * (0.5f + activation_boost);
+    
+    // Apply the propagated activation to the target
+    target->activation += propagated_activation;
+    
+    // Clamp to valid range
+    if (target->activation < 0.0f) target->activation = 0.0f;
+    if (target->activation > 1.0f) target->activation = 1.0f;
+    
+    printf("  Propagated %.2f activation from node %lu to node %lu\n", 
+           propagated_activation, source_id, target_id);
+}
+
+// Apply system-wide feedback
+void apply_system_feedback(FeedbackCollector* collector, FeedbackEntry* feedback) {
+    if (!collector || !feedback) return;
+    
+    printf("Applying system-wide feedback: %s\n", feedback->description);
+    
+    // For system feedback, we primarily adjust the learning rate
+    double adjustment = feedback->score * (double)feedback->impact / 20.0; // Smaller adjustment for system
+    
+    // Apply to learning rate
+    integrate_learning_feedback(collector, adjustment);
+}
+
+// Stub implementation for get_system_health_score
+double get_system_health_score(FeedbackCollector* collector) {
+    if (!collector) return 0.0;
+    // In a real implementation, calculate health based on feedback entries
+    printf("Stub: get_system_health_score called.\n");
+    // Return a dummy value for now
+    return 0.85; // Example health score
+}
+
+// Get total feedback count
+uint64_t get_feedback_count(FeedbackCollector* collector) {
+    return collector ? collector->count : 0;
+}
+
+// Get recent feedback entries
+FeedbackEntry* get_recent_feedback(FeedbackCollector* collector, uint64_t count) {
+    if (!collector || count == 0) return NULL;
+    
+    // Create an array to hold the entries
+    FeedbackEntry** entries = (FeedbackEntry**)malloc(sizeof(FeedbackEntry*) * count);
+    if (!entries) return NULL;
+    
+    // Fill the array with the most recent entries
+    uint64_t filled = 0;
+    FeedbackEntry* current = collector->recent_feedback;
+    
+    while (current && filled < count) {
+        entries[filled++] = current;
+        current = current->next;
+    }
+    
+    // Only return the head of the list - caller will need to follow next pointers
+    FeedbackEntry* result = filled > 0 ? entries[0] : NULL;
+    
+    free(entries);
+    return result;
+}
+
+// Integrate with learning feedback system
+void integrate_learning_feedback(FeedbackCollector* collector, double learning_adjustment) {
+    if (!collector || !collector->learning_system) return;
+    
+    // Get the current learning rate
+    double current_rate = collector->learning_system->learning_rate;
+    
+    // Apply adjustment (clamping to reasonable range)
+    double new_rate = current_rate * (1.0 + learning_adjustment);
+    if (new_rate < 0.001) new_rate = 0.001;
+    if (new_rate > 0.1) new_rate = 0.1;
+    
+    // Update the learning rate
+    collector->learning_system->learning_rate = new_rate;
+    
+    printf("Adjusted system learning rate: %.4f -> %.4f\n", current_rate, new_rate);
+}
+
+// Destroy feedback system and free resources
+void destroy_feedback_system(FeedbackCollector* collector) {
+    if (!collector) return;
+    
+    // Free all feedback entries
+    FeedbackEntry* current = collector->recent_feedback;
+    while (current) {
+        FeedbackEntry* next = current->next;
+        free(current);
+        current = next;
+    }
+    
+    // Free learning feedback system
+    destroy_learning_feedback_system(collector->learning_system);
+    
+    // Free the collector itself
+    free(collector);
+    
+    printf("Feedback system destroyed\n");
+}

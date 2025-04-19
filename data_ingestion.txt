@@ -1,0 +1,207 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "data_ingestion.h"
+#include "web_crawler.h"  // Add this include
+
+// Add this to store the web crawler instance in the global space
+extern WebCrawler* g_crawler;
+
+// Initialize the Data Ingestion Layer
+DataIngestionLayer* init_data_ingestion_layer(uint64_t max_entries) {
+    DataIngestionLayer* layer = (DataIngestionLayer*)malloc(sizeof(DataIngestionLayer));
+    if (!layer) {
+        printf("Error: Failed to allocate memory for Data Ingestion Layer.\n");
+        return NULL;
+    }
+
+    layer->text_data = (char**)malloc(sizeof(char*) * max_entries);
+    layer->numerical_data = (double**)malloc(sizeof(double*) * max_entries);
+    layer->visual_data = (char**)malloc(sizeof(char*) * max_entries);
+    
+    if (!layer->text_data || !layer->numerical_data || !layer->visual_data) {
+        free(layer->text_data);
+        free(layer->numerical_data);
+        free(layer->visual_data);
+        free(layer);
+        printf("Error: Failed to allocate memory for data arrays.\n");
+        return NULL;
+    }
+    
+    layer->max_entries = max_entries;
+    layer->text_count = 0;
+    layer->numerical_count = 0;
+    layer->visual_count = 0;
+
+    // Initialize the web crawler
+    layer->web_crawler = init_web_crawler(layer);
+    g_crawler = layer->web_crawler;
+    
+    if (!layer->web_crawler) {
+        printf("Warning: Failed to initialize web crawler.\n");
+    } else {
+        // Set default crawler configuration
+        CrawlerConfig config;
+        config.max_pages_per_domain = 5;
+        config.crawl_delay_ms = 500;
+        config.timeout_seconds = 30;
+        config.max_results = 50;
+        config.max_crawl_depth = 3;
+        config.respect_robots_txt = true;
+        config.follow_redirects = true;
+        strcpy(config.user_agent, "KaleidoscopeAI-Bot/1.0 (+https://example.com/bot)");
+        
+        configure_web_crawler(layer->web_crawler, &config);
+    }
+
+    printf("Data Ingestion Layer initialized with capacity for %lu entries per type.\n", max_entries);
+    return layer;
+}
+
+// Check if data is needed and crawl for it if necessary
+bool check_data_need(DataIngestionLayer* layer, const char* topic) {
+    if (!layer || !topic || !g_crawler) {
+        return false;
+    }
+    
+    // Check if we already have data on this topic
+    bool found = false;
+    for (uint64_t i = 0; i < layer->text_count; i++) {
+        if (strstr(layer->text_data[i], topic)) {
+            found = true;
+            break;
+        }
+    }
+    
+    // If we don't have data, autonomously crawl for it
+    if (!found) {
+        printf("No data found for topic '%s', starting autonomous crawl\n", topic);
+        return autonomous_data_crawl(g_crawler, topic, false);
+    }
+    
+    return true;
+}
+
+// Ingest Text Data
+void ingest_text(DataIngestionLayer* layer, const char* text) {
+    if (!layer || layer->text_count >= layer->max_entries) {
+        printf("Error: Text ingestion capacity reached or layer uninitialized.\n");
+        return;
+    }
+
+    layer->text_data[layer->text_count] = strdup(text);
+    printf("Ingested text data: %s\n", text);
+    layer->text_count++;
+}
+
+// Ingest Disease Data - with auto-crawl if needed
+void ingest_disease_data(DataIngestionLayer* layer, const char* disease_data) {
+    if (!layer || layer->text_count >= layer->max_entries) {
+        printf("Error: Disease data ingestion capacity reached or layer uninitialized.\n");
+        return;
+    }
+    
+    // For now, just store disease data as text
+    layer->text_data[layer->text_count] = strdup(disease_data);
+    printf("Ingested disease data: %s\n", disease_data);
+    layer->text_count++;
+    
+    // Extract disease name for autonomous crawling
+    char disease_name[256] = "";
+    if (sscanf(disease_data, "Disease: %255[^\n]", disease_name) == 1) {
+        // If we have a disease name, crawl for more information
+        if (g_crawler && disease_name[0] != '\0') {
+            char search_query[512];
+            snprintf(search_query, sizeof(search_query), "%s symptoms treatment research", disease_name);
+            autonomous_data_crawl(g_crawler, search_query, true);
+        }
+    }
+}
+
+// Add to Ingestion Memory
+void add_to_ingestion_memory(DataIngestionLayer* layer, const char* memory_entry) {
+    if (!layer || layer->text_count >= layer->max_entries) {
+        printf("Error: Memory ingestion capacity reached or layer uninitialized.\n");
+        return;
+    }
+    
+    // Store memory entry as text
+    layer->text_data[layer->text_count] = strdup(memory_entry);
+    printf("Added to ingestion memory: %s\n", memory_entry);
+    layer->text_count++;
+}
+
+// Ingest Numerical Data
+void ingest_numerical(DataIngestionLayer* layer, double* numbers, uint64_t count) {
+    if (!layer || layer->numerical_count >= layer->max_entries) {
+        printf("Error: Numerical ingestion capacity reached or layer uninitialized.\n");
+        return;
+    }
+
+    double* entry = (double*)malloc(sizeof(double) * count);
+    memcpy(entry, numbers, sizeof(double) * count);
+    layer->numerical_data[layer->numerical_count] = entry;
+
+    printf("Ingested numerical data: [");
+    for (uint64_t i = 0; i < count; i++) {
+        printf("%lf%s", numbers[i], (i < count - 1) ? ", " : "");
+    }
+    printf("]\n");
+
+    layer->numerical_count++;
+}
+
+// Ingest Visual Data
+void ingest_visual(DataIngestionLayer* layer, const char* visual_input) {
+    if (!layer || layer->visual_count >= layer->max_entries) {
+        printf("Error: Visual ingestion capacity reached or layer uninitialized.\n");
+        return;
+    }
+
+    layer->visual_data[layer->visual_count] = strdup(visual_input);
+    printf("Ingested visual data: %s\n", visual_input);
+    layer->visual_count++;
+}
+
+// Get all ingested data
+void get_ingested_data(DataIngestionLayer* layer) {
+    if (!layer) {
+        printf("Error: Layer is uninitialized.\n");
+        return;
+    }
+    
+    printf("Data Ingestion Layer Status:\n");
+    printf("- Text entries: %lu / %lu\n", layer->text_count, layer->max_entries);
+    printf("- Numerical entries: %lu / %lu\n", layer->numerical_count, layer->max_entries);
+    printf("- Visual entries: %lu / %lu\n", layer->visual_count, layer->max_entries);
+}
+
+// Cleanup Data Ingestion Layer
+void destroy_data_ingestion_layer(DataIngestionLayer* layer) {
+    if (!layer) return;
+
+    for (uint64_t i = 0; i < layer->text_count; i++) {
+        free(layer->text_data[i]);
+    }
+    for (uint64_t i = 0; i < layer->numerical_count; i++) {
+        free(layer->numerical_data[i]);
+    }
+    for (uint64_t i = 0; i < layer->visual_count; i++) {
+        free(layer->visual_data[i]);
+    }
+
+    free(layer->text_data);
+    free(layer->numerical_data);
+    free(layer->visual_data);
+    
+    // Clean up the web crawler
+    if (g_crawler) {
+        destroy_web_crawler(g_crawler);
+        g_crawler = NULL;
+    }
+    
+    free(layer);
+
+    printf("Data Ingestion Layer destroyed.\n");
+}
+

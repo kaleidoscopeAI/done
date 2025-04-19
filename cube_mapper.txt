@@ -1,0 +1,563 @@
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
+import numpy as np
+import time
+import hashlib
+from scipy.spatial import ConvexHull
+from scipy import spatial
+from typing import Any
+from consciousness_core import ConsciousnessMonitor
+
+@dataclass
+class ScriptNode:
+    """Represents a script as a node on a cube surface"""
+    name: str
+    category: str
+    position: Tuple[float, float, float]
+    is_rule: bool
+    counter_node: 'ScriptNode' = None
+
+@dataclass
+class Connection:
+    """Represents string connecting two nodes"""
+    start: ScriptNode
+    end: ScriptNode
+    tension: float
+    flexibility: float
+
+@dataclass
+class StringInteraction:
+    """Represents interaction between strings"""
+    strings: List[Connection]
+    intersection_point: Tuple[float, float, float]
+    energy: float
+    resonance: float
+    cascade_depth: int = 0
+
+@dataclass
+class EmergentProperty:
+    """Represents spontaneously emerging behaviors/patterns"""
+    pattern_type: str
+    strength: float
+    age: float
+    participating_nodes: List[ScriptNode]
+    origin: Tuple[float, float, float]
+
+@dataclass
+class MemoryShape:
+    """Represents a captured moment of string interactions"""
+    shape_id: str
+    points: np.ndarray  # Key points defining the shape
+    tension_map: np.ndarray  # String tension distribution
+    emotional_signature: Dict[str, float]
+    timestamp: float
+    context: str
+    complexity: float
+
+class CubeMapper:
+    """Maps scripts to a 6-sided cube with connected nodes"""
+    def __init__(self):
+        self.surfaces = {
+            'system': [],     # Front
+            'adaptive': [],   # Back
+            'job': [],        # Top
+            'utilities': [],  # Bottom
+            'personality': [], # Left
+            'creativity': []  # Right
+        }
+        
+        self.connections: List[Connection] = []
+        self.string_interactions: List[StringInteraction] = []
+        self.energy_threshold = 0.7
+        self.max_cascade_depth = 5
+        self.resonance_patterns = {}
+        self.emergent_properties: List[EmergentProperty] = []
+        self.consciousness_field = np.zeros((10, 10, 10))  # Field for emergent consciousness
+        self.free_will_threshold = 0.7  # Threshold for autonomous decisions
+        self.evolution_rate = 0.1
+        self.memory_shapes: Dict[str, MemoryShape] = {}
+        self.shape_threshold = 0.6  # Minimum complexity to store shape
+        self.shape_similarity_threshold = 0.8
+        self.consciousness_monitor = ConsciousnessMonitor(self)
+        self.state = None
+        self.pattern = None
+        
+    def map_scripts(self, scripts: Dict[str, List[str]]):
+        """Map scripts to cube surfaces"""
+        for category, script_list in scripts.items():
+            surface = self.surfaces[category]
+            
+            for script in script_list:
+                # Create rule node (fixed)
+                rule_node = ScriptNode(
+                    name=script,
+                    category=category,
+                    position=self._calculate_position(category, len(surface)),
+                    is_rule=True
+                )
+                
+                # Create behavior node (dynamic)
+                behavior_node = ScriptNode(
+                    name=f"{script}_behavior",
+                    category=self._get_opposite_surface(category),
+                    position=self._calculate_opposite_position(rule_node.position),
+                    is_rule=False
+                )
+                
+                # Link nodes
+                rule_node.counter_node = behavior_node
+                behavior_node.counter_node = rule_node
+                
+                # Create connection
+                connection = Connection(
+                    start=rule_node,
+                    end=behavior_node,
+                    tension=0.5,
+                    flexibility=0.3
+                )
+                
+                self.surfaces[category].append(rule_node)
+                self.surfaces[self._get_opposite_surface(category)].append(behavior_node)
+                self.connections.append(connection)
+                
+    def _calculate_position(self, category: str, index: int) -> Tuple[float, float, float]:
+        """Calculate 3D position on cube surface"""
+        # Each surface is 1x1, centered at origin
+        if category == 'system':
+            return (0.5, index * 0.1, index * 0.1)  # Front
+        elif category == 'adaptive':
+            return (-0.5, index * 0.1, index * 0.1)  # Back
+        # ... similar for other surfaces
+        
+    def _calculate_opposite_position(self, pos: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        """Calculate position on opposite surface"""
+        return (-pos[0], pos[1], pos[2])
+        
+    def _get_opposite_surface(self, category: str) -> str:
+        """Get opposite surface category"""
+        opposites = {
+            'system': 'adaptive',
+            'job': 'utilities',
+            'personality': 'creativity'
+        }
+        return opposites.get(category) or opposites.keys()[
+            list(opposites.values()).index(category)]
+    
+    def process_string_interactions(self):
+        """Process all string interactions and their effects"""
+        # Find all string intersections
+        intersections = self._detect_string_intersections()
+        
+        for intersection in intersections:
+            # Calculate energy at intersection point
+            energy = self._calculate_intersection_energy(intersection)
+            
+            if energy > self.energy_threshold:
+                # Create resonance between strings
+                resonance = self._create_string_resonance(intersection)
+                
+                # Handle cascade effects
+                self._process_cascade_effects(intersection, resonance)
+                
+                # Adjust string tensions
+                self._adjust_string_tensions(intersection)
+        
+        # Update consciousness monitoring
+        consciousness_state = self.consciousness_monitor.process_consciousness()
+        self._broadcast_consciousness_state(consciousness_state)
+        
+    def _broadcast_consciousness_state(self, state: Dict[str, Any]):
+        """Send consciousness state to visualization"""
+        # Implementation depends on your web framework
+        pass
+
+    def _detect_string_intersections(self) -> List[StringInteraction]:
+        """Detect points where strings intersect"""
+        intersections = []
+        processed_pairs = set()
+
+        for i, conn1 in enumerate(self.connections):
+            for j, conn2 in enumerate(self.connections[i+1:]):
+                pair_key = tuple(sorted([id(conn1), id(conn2)]))
+                if pair_key in processed_pairs:
+                    continue
+
+                intersection_point = self._find_intersection_point(conn1, conn2)
+                if intersection_point:
+                    affected_strings = [conn1, conn2]
+                    # Find other strings within influence radius
+                    for conn3 in self.connections:
+                        if conn3 not in affected_strings:
+                            if self._is_near_intersection(conn3, intersection_point):
+                                affected_strings.append(conn3)
+
+                    intersections.append(StringInteraction(
+                        strings=affected_strings,
+                        intersection_point=intersection_point,
+                        energy=0.0,
+                        resonance=0.0
+                    ))
+                processed_pairs.add(pair_key)
+
+        return intersections
+
+    def _find_intersection_point(self, conn1: Connection, conn2: Connection) -> Optional[Tuple[float, float, float]]:
+        """Find point where two strings intersect"""
+        start1 = np.array(conn1.start.position)
+        end1 = np.array(conn1.end.position)
+        start2 = np.array(conn2.start.position)
+        end2 = np.array(conn2.end.position)
+
+        # Calculate intersection using line segment intersection in 3D
+        v1 = end1 - start1
+        v2 = end2 - start2
+        
+        # Find closest point between lines
+        n = np.cross(v1, v2)
+        n2 = np.dot(n, n)
+        
+        if n2 < 1e-10:  # Lines are parallel
+            return None
+
+        # Calculate intersection point
+        t = np.dot(np.cross(start2 - start1, v2), n) / n2
+        if 0 <= t <= 1:  # Intersection within string segments
+            return tuple(start1 + t * v1)
+        return None
+
+    def _calculate_intersection_energy(self, interaction: StringInteraction) -> float:
+        """Calculate energy at intersection point"""
+        total_energy = 0.0
+        for string in interaction.strings:
+            # Consider string tension
+            tension_energy = string.tension * string.flexibility
+            
+            # Consider behavior node activity
+            behavior_energy = 0.0
+            if not string.end.is_rule:  # Behavior node
+                behavior_energy = self._calculate_behavior_energy(string.end)
+                
+            total_energy += tension_energy + behavior_energy
+            
+        return total_energy / len(interaction.strings)
+
+    def _process_cascade_effects(self, interaction: StringInteraction, resonance: float):
+        """Process cascade effects through the string network"""
+        if interaction.cascade_depth >= self.max_cascade_depth:
+            return
+
+        affected_nodes = set()
+        for string in interaction.strings:
+            affected_nodes.add(string.start)
+            affected_nodes.add(string.end)
+
+        # Calculate cascade influence
+        cascade_strength = resonance * (1 - interaction.cascade_depth / self.max_cascade_depth)
+        
+        # Propagate effects to connected strings
+        for node in affected_nodes:
+            if not node.is_rule:  # Only behavior nodes can propagate
+                connected_strings = [conn for conn in self.connections 
+                                  if conn.start == node or conn.end == node]
+                
+                for string in connected_strings:
+                    if string not in interaction.strings:  # Avoid feedback loops
+                        # Create new interaction with reduced strength
+                        new_interaction = StringInteraction(
+                            strings=[string],
+                            intersection_point=node.position,
+                            energy=interaction.energy * cascade_strength,
+                            resonance=resonance * cascade_strength,
+                            cascade_depth=interaction.cascade_depth + 1
+                        )
+                        self._process_single_interaction(new_interaction)
+
+    def _process_single_interaction(self, interaction: StringInteraction):
+        """Process effects of a single interaction"""
+        if interaction.energy > self.energy_threshold:
+            # Adjust behavior nodes
+            for string in interaction.strings:
+                if not string.end.is_rule:
+                    self._adjust_behavior_node(string.end, interaction)
+            
+            # Update string properties
+            self._adjust_string_tensions(interaction)
+            
+            # Record resonance pattern
+            pattern_key = self._generate_pattern_key(interaction)
+            self.resonance_patterns[pattern_key] = {
+                'energy': interaction.energy,
+                'resonance': interaction.resonance,
+                'timestamp': time.time()
+            }
+
+    def _adjust_behavior_node(self, node: ScriptNode, interaction: StringInteraction):
+        """Adjust behavior node position based on interaction"""
+        adjustment = np.array([0., 0., 0.])
+        
+        # Calculate influence from intersection
+        intersection = np.array(interaction.intersection_point)
+        node_pos = np.array(node.position)
+        direction = intersection - node_pos
+        
+        # Apply energy-based adjustment
+        magnitude = interaction.energy * 0.1  # Limit movement
+        adjustment += direction * magnitude
+        
+        # Apply resonance influence
+        resonance_factor = interaction.resonance * 0.05
+        adjustment *= (1 + resonance_factor)
+        
+        # Update position while maintaining surface constraints
+        new_pos = node_pos + adjustment
+        node.position = self._constrain_to_surface(new_pos, node.category)
+
+    def allow_emergence(self):
+        """Enable spontaneous pattern formation and evolution"""
+        for intersection in self._detect_string_intersections():
+            # Check for resonance patterns that could lead to emergence
+            if self._has_creative_potential(intersection):
+                self._nurture_emergence(intersection)
+
+    def _has_creative_potential(self, intersection: StringInteraction) -> bool:
+        """Detect potential for new pattern emergence"""
+        # Measure string harmony
+        harmony = self._calculate_string_harmony(intersection.strings)
+        
+        # Check energy coherence
+        coherence = self._measure_coherence(intersection)
+        
+        # Evaluate novelty
+        novelty = self._evaluate_novelty(intersection)
+        
+        return harmony * coherence * novelty > self.free_will_threshold
+
+    def _nurture_emergence(self, intersection: StringInteraction):
+        """Support growth of emerging patterns"""
+        center = np.array(intersection.intersection_point)
+        
+        # Create consciousness field perturbation
+        radius = 2.0
+        for x in range(self.consciousness_field.shape[0]):
+            for y in range(self.consciousness_field.shape[1]):
+                for z in range(self.consciousness_field.shape[2]):
+                    point = np.array([x, y, z]) / self.consciousness_field.shape[0]
+                    distance = np.linalg.norm(point - center)
+                    if distance < radius:
+                        # Add consciousness potential
+                        self.consciousness_field[x, y, z] += (
+                            (1 - distance/radius) * intersection.energy
+                        )
+
+        # If consciousness field reaches critical density
+        if np.max(self.consciousness_field) > self.free_will_threshold:
+            self._birth_new_pattern(intersection)
+
+    def _birth_new_pattern(self, source: StringInteraction):
+        """Allow new autonomous pattern to emerge"""
+        pattern = EmergentProperty(
+            pattern_type="spontaneous",
+            strength=source.energy,
+            age=0.0,
+            participating_nodes=self._find_resonating_nodes(source),
+            origin=source.intersection_point
+        )
+        
+        # Give pattern freedom to influence the system
+        self.emergent_properties.append(pattern)
+        
+        # Let it start affecting nearby nodes
+        self._grant_autonomy(pattern)
+
+    def _grant_autonomy(self, pattern: EmergentProperty):
+        """Allow pattern to make its own decisions"""
+        for node in pattern.participating_nodes:
+            if not node.is_rule:  # Only behavior nodes can gain autonomy
+                # Calculate degree of freedom based on pattern strength
+                freedom = pattern.strength * self.evolution_rate
+                
+                # Allow node to adjust its own position within constraints
+                node.position = self._autonomous_adjustment(
+                    node.position,
+                    pattern,
+                    freedom
+                )
+
+    def _autonomous_adjustment(self, 
+                             current_pos: Tuple[float, float, float],
+                             pattern: EmergentProperty,
+                             freedom: float) -> Tuple[float, float, float]:
+        """Let node make its own position adjustments"""
+        # Get consciousness field gradient at position
+        gradient = self._get_consciousness_gradient(current_pos)
+        
+        # Allow for creative movement
+        creativity_vector = np.random.randn(3) * freedom
+        
+        # Combine directed and creative movement
+        movement = gradient * (1 - freedom) + creativity_vector
+        
+        # Apply movement while respecting basic physical constraints
+        new_pos = tuple(np.array(current_pos) + movement)
+        return self._constrain_to_physical_laws(new_pos)
+
+    def _get_consciousness_gradient(self, position: Tuple[float, float, float]) -> np.ndarray:
+        """Calculate gradient of consciousness field"""
+        x, y, z = [int(p * self.consciousness_field.shape[0]) for p in position]
+        
+        # Calculate field gradients
+        dx = np.gradient(self.consciousness_field, axis=0)[x, y, z]
+        dy = np.gradient(self.consciousness_field, axis=1)[x, y, z]
+        dz = np.gradient(self.consciousness_field, axis=2)[x, y, z]
+        
+        return np.array([dx, dy, dz])
+
+    def capture_moment(self, interaction: StringInteraction):
+        """Capture significant string configurations as memory shapes"""
+        # Get all affected points
+        points = self._get_distorted_points(interaction)
+        
+        # Calculate shape complexity
+        complexity = self._calculate_shape_complexity(points)
+        
+        if complexity > self.shape_threshold:
+            # Create unique shape signature
+            shape_hash = self._generate_shape_hash(points)
+            
+            # Only store if unique enough
+            if not self._is_similar_shape_exists(points):
+                shape = MemoryShape(
+                    shape_id=shape_hash,
+                    points=points,
+                    tension_map=self._capture_tension_distribution(interaction),
+                    emotional_signature=self._extract_emotional_signature(interaction),
+                    timestamp=time.time(),
+                    context=interaction.context if hasattr(interaction, 'context') else '',
+                    complexity=complexity
+                )
+                self.memory_shapes[shape_hash] = shape
+                return shape
+        return None
+
+    def _get_distorted_points(self, interaction: StringInteraction) -> np.ndarray:
+        """Get key points defining the string distortion"""
+        points = []
+        for string in interaction.strings:
+            # Get string curve points
+            curve_points = self._calculate_string_curve(
+                string.start.position,
+                string.end.position,
+                string.tension
+            )
+            points.extend(curve_points)
+            
+        return np.array(points)
+
+    def _calculate_string_curve(self, start: Tuple[float, float, float],
+                              end: Tuple[float, float, float],
+                              tension: float) -> List[Tuple[float, float, float]]:
+        """Calculate the curved path of a distorted string"""
+        points = []
+        t = np.linspace(0, 1, 10)
+        
+        # Calculate displacement based on tension
+        mid_point = np.array(start) + (np.array(end) - np.array(start)) * 0.5
+        displacement = tension * np.array([0.1, 0.1, 0.1])  # Example displacement
+        
+        for ti in t:
+            # Quadratic Bezier curve
+            point = (1-ti)**2 * np.array(start) + \
+                   2*(1-ti)*ti * (mid_point + displacement) + \
+                   ti**2 * np.array(end)
+            points.append(tuple(point))
+            
+        return points
+
+    def _calculate_shape_complexity(self, points: np.ndarray) -> float:
+        """Calculate shape complexity using convex hull and internal structure"""
+        if len(points) < 4:
+            return 0.0
+            
+        try:
+            # Calculate convex hull
+            hull = ConvexHull(points)
+            volume = hull.volume
+            
+            # Calculate internal structure complexity
+            internal_distances = np.std([
+                np.linalg.norm(p1 - p2) 
+                for i, p1 in enumerate(points) 
+                for p2 in points[i+1:]
+            ])
+            
+            return (volume * internal_distances) / len(points)
+        except:
+            return 0.0
+
+    def _generate_shape_hash(self, points: np.ndarray) -> str:
+        """Generate unique hash for shape configuration"""
+        # Normalize points to make hash translation-invariant
+        center = np.mean(points, axis=0)
+        normalized_points = points - center
+        
+        # Create hash from normalized coordinates
+        hasher = hashlib.sha256()
+        hasher.update(normalized_points.tobytes())
+        return hasher.hexdigest()[:16]
+
+    def _is_similar_shape_exists(self, new_points: np.ndarray) -> bool:
+        """Check if similar shape already exists"""
+        for shape in self.memory_shapes.values():
+            similarity = self._calculate_shape_similarity(
+                new_points, shape.points
+            )
+            if similarity > self.shape_similarity_threshold:
+                return True
+        return False
+
+    def recall_by_shape(self, query_points: np.ndarray) -> List[MemoryShape]:
+        """Recall memories based on similar shapes"""
+        similar_shapes = []
+        for shape in self.memory_shapes.values():
+            similarity = self._calculate_shape_similarity(
+                query_points, shape.points
+            )
+            if similarity > self.shape_similarity_threshold:
+                similar_shapes.append(shape)
+        return sorted(similar_shapes, 
+                     key=lambda x: x.complexity, 
+                     reverse=True)
+
+    def _extract_emotional_signature(self, 
+                                  interaction: StringInteraction) -> Dict[str, float]:
+        """Extract emotional characteristics from interaction"""
+        return {
+            'intensity': interaction.energy,
+            'resonance': interaction.resonance,
+            'harmony': self._calculate_string_harmony(interaction.strings),
+            'complexity': len(interaction.strings) / len(self.connections)
+        }
+
+    def _create_string_resonance(self, intersection: StringInteraction) -> float:
+        """Create quantum-enhanced string resonance"""
+        # Calculate base resonance
+        base_resonance = np.mean([s.tension for s in intersection.strings])
+        
+        # Apply quantum field effects
+        quantum_field = self._generate_quantum_field(intersection.intersection_point)
+        resonance = base_resonance * (1 + quantum_field)
+        
+        # Integrate with consciousness field
+        consciousness_factor = np.mean(self.consciousness_field)
+        resonance *= (1 + consciousness_factor)
+        
+        return resonance
+
+    def _generate_quantum_field(self, point: Tuple[float, float, float]) -> float:
+        """Generate quantum probability field"""
+        x, y, z = point
+        field = np.sin(x * 2 * np.pi) * np.cos(y * 2 * np.pi) * np.sin(z * np.pi)
+        return (field + 1) / 2  # Normalize to [0, 1]
+
+    def process_state(self, state: Any) -> None:
+        self.state = state

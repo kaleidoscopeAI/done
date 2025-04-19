@@ -1,0 +1,460 @@
+#include "system_integration.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <math.h>
+
+// Set error message
+static void set_integration_error(SystemIntegration* integration, const char* format, ...) {
+    if (!integration) return;
+    
+    va_list args;
+    va_start(args, format);
+    vsnprintf(integration->last_error, sizeof(integration->last_error), format, args);
+    va_end(args);
+    
+    fprintf(stderr, "[Integration Error] %s\n", integration->last_error);
+    integration->status = INTEGRATION_STATUS_ERROR;
+}
+
+// Initialize integration system with core components
+SystemIntegration* init_system_integration(
+    AutonomousLearning* learning_system,
+    DataIngestionLayer* ingestion_layer,
+    MemoryGraph* memory_graph,
+    KaleidoscopeEngine* kaleidoscope_engine,
+    FeedbackCollector* feedback_system
+) {
+    SystemIntegration* integration = (SystemIntegration*)malloc(sizeof(SystemIntegration));
+    if (!integration) {
+        fprintf(stderr, "Failed to allocate memory for system integration\n");
+        return NULL;
+    }
+    
+    // Initialize with provided components
+    integration->learning_system = learning_system;
+    integration->ingestion_layer = ingestion_layer;
+    integration->memory_graph = memory_graph;
+    integration->kaleidoscope_engine = kaleidoscope_engine;
+    integration->feedback_system = feedback_system;
+    
+    // Initialize DNA-inspired traits with reasonable defaults
+    integration->traits.learning_ability = 0.5f;
+    integration->traits.memory_persistence = 0.5f;
+    integration->traits.adaptability = 0.5f;
+    integration->traits.curiosity = 0.6f;
+    integration->traits.efficiency = 0.5f;
+    integration->traits.specialization = 0.3f;
+    integration->traits.reliability = 0.7f;
+    
+    // Initialize statistics
+    integration->knowledge_nodes_created = 0;
+    integration->feedback_cycles_completed = 0;
+    integration->autonomous_actions_taken = 0;
+    integration->web_data_integrations = 0;
+    
+    // Initialize state
+    integration->initialized = true;
+    integration->status = INTEGRATION_STATUS_OK;
+    strcpy(integration->last_error, "No error");
+    
+    // Validate components
+    if (!learning_system || !ingestion_layer || !memory_graph || 
+        !kaleidoscope_engine || !feedback_system) {
+        set_integration_error(integration, "One or more core components are missing");
+        integration->status = INTEGRATION_STATUS_PARTIAL;
+    }
+    
+    printf("System integration initialized with traits: L=%.2f, M=%.2f, A=%.2f, C=%.2f, E=%.2f, S=%.2f, R=%.2f\n",
+           integration->traits.learning_ability,
+           integration->traits.memory_persistence,
+           integration->traits.adaptability,
+           integration->traits.curiosity,
+           integration->traits.efficiency,
+           integration->traits.specialization,
+           integration->traits.reliability);
+    
+    return integration;
+}
+
+// Process a full integration cycle
+IntegrationStatus process_integration_cycle(SystemIntegration* integration) {
+    if (!integration || !integration->initialized) {
+        return INTEGRATION_STATUS_NOT_INITIALIZED;
+    }
+    
+    printf("Starting integration cycle...\n");
+    
+    // 1. Run autonomous learning process
+    if (integration->learning_system) {
+        autonomous_learning_process(integration->learning_system);
+        integration->autonomous_actions_taken++;
+    }
+    
+    // 2. Check for knowledge gaps to address based on curiosity trait
+    if (integration->learning_system && (rand() / (float)RAND_MAX) < integration->traits.curiosity) {
+        KnowledgeGap* gap = get_highest_priority_gap(integration->learning_system);
+        if (gap) {
+            printf("Curiosity-driven knowledge acquisition for: %s\n", gap->topic);
+            address_knowledge_gap(integration->learning_system, gap->topic);
+        }
+    }
+    
+    // 3. Create knowledge connections in memory graph
+    if (integration->memory_graph && integration->ingestion_layer) {
+        // Find patterns across recently ingested data
+        for (uint64_t i = 0; i < integration->ingestion_layer->text_count && 
+                             i < integration->ingestion_layer->max_entries; i++) {
+            
+            const char* text = integration->ingestion_layer->text_data[i];
+            if (!text) continue;
+            
+            // Create memory node for this text
+            MemoryNode* node = create_memory_node(text, 50);
+            add_memory_node(integration->memory_graph, node);
+            integration->knowledge_nodes_created++;
+            
+            // Look for connections with existing nodes
+            for (uint64_t j = 0; j < integration->memory_graph->node_count; j++) {
+                MemoryNode* existing = integration->memory_graph->nodes[j];
+                if (!existing || !existing->data) continue;
+                
+                // Check for text similarity (simple substring check for now)
+                if (strstr(existing->data, text) || strstr(text, existing->data)) {
+                    // Connect nodes
+                    connect_nodes(integration->memory_graph, node->id, existing->id, 0.7f);
+                }
+            }
+        }
+    }
+    
+    // 4. Process feedback and apply it to system traits
+    if (integration->feedback_system && integration->memory_graph) {
+        process_all_feedback(integration->feedback_system, integration->memory_graph);
+        integration->feedback_cycles_completed++;
+        
+        // Occasionally evolve system traits based on feedback
+        if (integration->feedback_cycles_completed % 5 == 0) {
+            evolve_system_traits(integration);
+        }
+    }
+    
+    printf("Integration cycle completed. Nodes: %u, Feedback: %u, Actions: %u, Web: %u\n",
+           integration->knowledge_nodes_created,
+           integration->feedback_cycles_completed,
+           integration->autonomous_actions_taken,
+           integration->web_data_integrations);
+    
+    return INTEGRATION_STATUS_OK;
+}
+
+// Manually request knowledge acquisition on a topic
+IntegrationStatus acquire_knowledge(SystemIntegration* integration, const char* topic) {
+    if (!integration || !integration->initialized) {
+        return INTEGRATION_STATUS_NOT_INITIALIZED;
+    }
+    
+    if (!topic) {
+        set_integration_error(integration, "Invalid topic");
+        return INTEGRATION_STATUS_ERROR;
+    }
+    
+    printf("Manual knowledge acquisition requested for topic: %s\n", topic);
+    
+    // Check if we already have sufficient knowledge on this topic
+    if (integration->learning_system) {
+        KnowledgeState state = evaluate_knowledge_state(integration->learning_system, topic);
+        if (state == KNOWLEDGE_STATE_SUFFICIENT || state == KNOWLEDGE_STATE_COMPREHENSIVE) {
+            printf("Already have sufficient knowledge on: %s\n", topic);
+            return INTEGRATION_STATUS_OK;
+        }
+        
+        // Request knowledge acquisition
+        if (address_knowledge_gap(integration->learning_system, topic)) {
+            integration->autonomous_actions_taken++;
+            return INTEGRATION_STATUS_OK;
+        }
+    }
+    
+    // Try direct web crawling if autonomous learning fails
+    WebCrawler* crawler = integration->ingestion_layer ? integration->ingestion_layer->web_crawler : NULL;
+    if (crawler) {
+        if (autonomous_data_crawl(crawler, topic, true)) {
+            printf("Direct web crawler request for: %s\n", topic);
+            return INTEGRATION_STATUS_OK;
+        }
+    }
+    
+    set_integration_error(integration, "Failed to initiate knowledge acquisition for: %s", topic);
+    return INTEGRATION_STATUS_ERROR;
+}
+
+// Integrate web data into knowledge graph
+IntegrationStatus integrate_web_data(
+    SystemIntegration* integration, 
+    const char* data, 
+    const char* source_url
+) {
+    if (!integration || !integration->initialized) {
+        return INTEGRATION_STATUS_NOT_INITIALIZED;
+    }
+    
+    if (!data) {
+        set_integration_error(integration, "Invalid data");
+        return INTEGRATION_STATUS_ERROR;
+    }
+    
+    printf("Integrating web data from: %s\n", source_url ? source_url : "unknown source");
+    
+    // Ingest the data
+    if (integration->ingestion_layer) {
+        ingest_text(integration->ingestion_layer, data);
+        
+        // Also create a memory record with source information
+        if (source_url && integration->memory_graph) {
+            char memory_text[1024];
+            snprintf(memory_text, sizeof(memory_text), "WebData: %.900s\nSource: %s", 
+                    data, source_url);
+            
+            MemoryNode* node = create_memory_node(memory_text, 70);
+            add_memory_node(integration->memory_graph, node);
+            integration->knowledge_nodes_created++;
+        }
+        
+        integration->web_data_integrations++;
+        return INTEGRATION_STATUS_OK;
+    }
+    
+    set_integration_error(integration, "Data ingestion layer not available");
+    return INTEGRATION_STATUS_ERROR;
+}
+
+// Get current trait state
+SystemTraits get_system_traits(SystemIntegration* integration) {
+    SystemTraits empty_traits = {0};
+    
+    if (!integration || !integration->initialized) {
+        return empty_traits;
+    }
+    
+    return integration->traits;
+}
+
+// Evolve system traits based on performance and feedback
+void evolve_system_traits(SystemIntegration* integration) {
+    if (!integration || !integration->initialized) {
+        return;
+    }
+    
+    printf("Evolving system traits based on feedback and performance...\n");
+    
+    // Get current feedback state
+    double system_health = integration->feedback_system ? 
+                        get_system_health_score(integration->feedback_system) : 0.5;
+    
+    // Adjust traits based on feedback
+    float health_adjustment = (system_health - 0.5) * 0.2f;
+    
+    // Apply adjustments with some randomness for exploration
+    integration->traits.learning_ability = fmin(1.0f, fmax(0.1f, 
+                                            integration->traits.learning_ability + 
+                                            health_adjustment + 
+                                            ((float)rand() / RAND_MAX - 0.5f) * 0.1f));
+    
+    integration->traits.memory_persistence = fmin(1.0f, fmax(0.1f, 
+                                             integration->traits.memory_persistence + 
+                                             health_adjustment + 
+                                             ((float)rand() / RAND_MAX - 0.5f) * 0.1f));
+    
+    integration->traits.adaptability = fmin(1.0f, fmax(0.1f, 
+                                       integration->traits.adaptability + 
+                                       health_adjustment + 
+                                       ((float)rand() / RAND_MAX - 0.5f) * 0.1f));
+    
+    // Curiosity might go down a bit with better health to focus on refining
+    integration->traits.curiosity = fmin(1.0f, fmax(0.1f, 
+                                    integration->traits.curiosity + 
+                                    -health_adjustment * 0.5f + 
+                                    ((float)rand() / RAND_MAX - 0.5f) * 0.1f));
+    
+    integration->traits.efficiency = fmin(1.0f, fmax(0.1f, 
+                                     integration->traits.efficiency + 
+                                     health_adjustment + 
+                                     ((float)rand() / RAND_MAX - 0.5f) * 0.1f));
+    
+    // Specialization increases when health is good to refine knowledge
+    integration->traits.specialization = fmin(1.0f, fmax(0.1f, 
+                                        integration->traits.specialization + 
+                                        health_adjustment * 2.0f + 
+                                        ((float)rand() / RAND_MAX - 0.5f) * 0.1f));
+    
+    integration->traits.reliability = fmin(1.0f, fmax(0.1f, 
+                                     integration->traits.reliability + 
+                                     health_adjustment + 
+                                     ((float)rand() / RAND_MAX - 0.5f) * 0.1f));
+    
+    printf("Evolved traits: L=%.2f, M=%.2f, A=%.2f, C=%.2f, E=%.2f, S=%.2f, R=%.2f\n",
+           integration->traits.learning_ability,
+           integration->traits.memory_persistence,
+           integration->traits.adaptability,
+           integration->traits.curiosity,
+           integration->traits.efficiency,
+           integration->traits.specialization,
+           integration->traits.reliability);
+    
+    // Apply trait effects to the system
+    _apply_trait_effects(integration);
+}
+
+// Apply trait effects to system components
+static void _apply_trait_effects(SystemIntegration* integration) {
+    if (!integration) return;
+    
+    // Apply learning ability to learning system
+    if (integration->learning_system) {
+        // Adjust knowledge gap evaluation
+        // This would need changes to autonomou_learning.c to fully implement
+    }
+    
+    // Apply memory persistence to memory graph
+    if (integration->memory_graph) {
+        // Adjust node activation decay rates based on memory_persistence
+        // Would need memory_graph API updates to implement
+    }
+    
+    // Apply adaptability to feedback system
+    if (integration->feedback_system) {
+        // Adjust feedback weights based on adaptability
+        // Would need changes to feedback_system.c to implement
+    }
+    
+    // Apply efficiency to kaleidoscope engine
+    if (integration->kaleidoscope_engine) {
+        // Adjust processing parameters based on efficiency
+        // Would need changes to kaleidoscope_engine.c to implement
+    }
+}
+
+// Direct implementation of DNA transfer
+IntegrationStatus direct_node_dna_transfer(
+    SystemIntegration* integration,
+    uint64_t node_id, 
+    const char* target_system
+) {
+    if (!integration || !integration->initialized) {
+        return INTEGRATION_STATUS_NOT_INITIALIZED;
+    }
+    
+    // Find node in memory graph
+    MemoryNode* node = get_node(integration->memory_graph, node_id);
+    if (!node) {
+        set_integration_error(integration, "Node %lu not found", node_id);
+        return INTEGRATION_STATUS_ERROR;
+    }
+    
+    printf("Transferring DNA for node %lu to %s\n", node_id, target_system ? target_system : "default");
+    
+    // In a real implementation, this would perform the actual DNA transfer
+    // Here we just simulate the operation
+    
+    // Create DNA representation based on node properties
+    char dna_code[256] = {0};
+    snprintf(dna_code, sizeof(dna_code), "NODE_DNA_%lu_%s", 
+             node_id, node->type);
+    
+    // Store DNA code as node data if it doesn't exist
+    if (!node->data) {
+        size_t dna_size = strlen(dna_code) + 1;
+        node->data = malloc(dna_size);
+        if (node->data) {
+            strcpy(node->data, dna_code);
+            node->data_size = dna_size;
+        }
+    }
+    
+    printf("DNA transfer completed for node %lu\n", node_id);
+    return INTEGRATION_STATUS_OK;
+}
+
+// Evolve node DNA directly in C
+IntegrationStatus evolve_node_dna(SystemIntegration* integration, uint64_t node_id) {
+    if (!integration || !integration->initialized) {
+        return INTEGRATION_STATUS_NOT_INITIALIZED;
+    }
+    
+    // Find node in memory graph
+    MemoryNode* node = get_node(integration->memory_graph, node_id);
+    if (!node) {
+        set_integration_error(integration, "Node %lu not found", node_id);
+        return INTEGRATION_STATUS_ERROR;
+    }
+    
+    printf("Evolving DNA for node %lu\n", node_id);
+    
+    // Evolve DNA based on traits
+    float evolution_factor = integration->traits.adaptability * 0.5f + 
+                             integration->traits.learning_ability * 0.3f +
+                             ((float)rand() / RAND_MAX) * 0.2f;
+    
+    // Update node activation based on evolution
+    node->activation = fmin(1.0f, node->activation + evolution_factor * 0.1f);
+    
+    // If there is DNA data, update it
+    if (node->data && node->data_size > 0) {
+        char* current_dna = (char*)node->data;
+        
+        // Add evolution marker to DNA
+        char evolved_dna[512];
+        snprintf(evolved_dna, sizeof(evolved_dna), "%s_EV%.2f", 
+                 current_dna, evolution_factor);
+        
+        // Replace DNA
+        free(node->data);
+        node->data = strdup(evolved_dna);
+        node->data_size = strlen(evolved_dna) + 1;
+    }
+    
+    printf("DNA evolution completed for node %lu, new activation: %.2f\n", 
+           node_id, node->activation);
+    
+    return INTEGRATION_STATUS_OK;
+}
+
+// Get the last error message
+const char* get_integration_error(SystemIntegration* integration) {
+    return integration ? integration->last_error : "No integration system";
+}
+
+// Connect Python modules with C components
+IntegrationStatus connect_python_modules(
+    SystemIntegration* integration,
+    const char* python_module_path
+) {
+    if (!integration || !integration->initialized) {
+        return INTEGRATION_STATUS_NOT_INITIALIZED;
+    }
+    
+    if (!python_module_path) {
+        set_integration_error(integration, "Invalid Python module path");
+        return INTEGRATION_STATUS_ERROR;
+    }
+    
+    printf("Connecting Python modules from: %s\n", python_module_path);
+    
+    // This would require Python embedding API (Python.h)
+    // For now, we'll just acknowledge the request
+    printf("Python module integration not fully implemented yet\n");
+    
+    return INTEGRATION_STATUS_PARTIAL;
+}
+
+// Destroy integration system
+void destroy_system_integration(SystemIntegration* integration) {
+    if (!integration) return;
+    
+    // We don't free the individual components here as they're managed externally
+    
+    free(integration);
+    printf("System integration destroyed\n");
+}

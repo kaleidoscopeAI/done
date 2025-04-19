@@ -1,0 +1,538 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdbool.h>
+#include <pthread.h>
+#include <libwebsockets.h>
+#include <curl/curl.h>
+#include <signal.h>
+#include <time.h>
+#include <sys/stat.h> // For mkdir
+#include <stddef.h> // For size_t
+#include <errno.h> // For errno with mkdir
+
+// Include necessary project headers
+#include "data_ingestion.h"
+#include "simulation_layer.h" // Assuming this defines SimulationState if needed
+#include "node_core.h"        // Assuming this defines NodeState if needed
+#include "websocket_server.h"
+#include "feedback_system.h"
+#include "web_crawler.h"      // Assuming this defines WebCrawlerTask if needed
+
+// Use real json-c header
+#include <json-c/json.h>
+
+// Global variables
+#define PORT 9000
+#define LWS_PROTOCOL_NAME "quantum-simulation-protocol"
+#define MAX_PAYLOAD_SIZE 4096
+
+static struct lws_context *context;
+static volatile int force_exit = 0; // Make force_exit volatile
+static int simulation_update_interval = 100; // milliseconds
+
+// External references (ensure these are defined elsewhere, e.g., in main.c or another global scope)
+extern DataIngestionLayer* g_ingestion_layer;
+extern FeedbackCollector* g_feedback_system;
+extern MemoryGraph* g_memory_graph; // Assuming memory graph is needed
+
+// Forward declaration of protocols array
+static const struct lws_protocols protocols[];
+
+// Structure to hold simulation data for transmitting to frontend
+// Ensure this matches the definition used in simulation_layer or define it here
+typedef struct {
+    double molecule_positions[100][3]; // x,y,z positions
+    double energy_levels[100];
+    int atom_count;
+    char molecule_types[100][32];
+} SimulationState;
+
+static SimulationState current_state; // Global state instance
+
+// Struct for storing web crawl data (used by curl callback)
+typedef struct {
+    char* memory;
+    size_t size;
+} MemoryStruct;
+
+// Structure for the web crawler task (ensure this matches web_crawler.h or define here)
+typedef struct {
+    char* search_term;
+    char* result;
+    bool is_completed;
+    pthread_mutex_t mutex;
+} WebCrawlerTask;
+
+static WebCrawlerTask crawler_task = {NULL, NULL, true, PTHREAD_MUTEX_INITIALIZER};
+
+// --- Function Implementations ---
+
+// Signal handler for graceful termination
+static void sigint_handler(int sig) {
+    force_exit = 1;
+    // Request context destruction to break out of lws_service loop
+    if (context) {
+        lws_cancel_service(context);
+    }
+}
+
+// Placeholder: Update simulation state (replace with actual logic)
+static void update_simulation_state(SimulationState *state) {
+    // Example: Get node states from node_core
+    int node_count = 0;
+    NodeState* node_states = get_node_states(&node_count); // Assuming this exists in node_core.c
+
+    state->atom_count = node_count > 100 ? 100 : node_count; // Limit to array size
+    for (int i = 0; i < state->atom_count; ++i) {
+        state->molecule_positions[i][0] = node_states[i].position[0];
+        state->molecule_positions[i][1] = node_states[i].position[1];
+        state->molecule_positions[i][2] = node_states[i].position[2];
+        state->energy_levels[i] = node_states[i].energy;
+        strncpy(state->molecule_types[i], node_states[i].type, 31);
+        state->molecule_types[i][31] = '\0';
+    }
+    free(node_states); // Free the memory allocated by get_node_states
+
+    // Add some randomness for demonstration
+    state->atom_count = (rand() % 50) + 10; // Random number of atoms (10-59)
+    for(int i = 0; i < state->atom_count; ++i) {
+         state->molecule_positions[i][0] = (double)(rand() % 2000 - 1000) / 100.0; // -10.0 to 10.0
+         state->molecule_positions[i][1] = (double)(rand() % 2000 - 1000) / 100.0;
+         state->molecule_positions[i][2] = (double)(rand() % 2000 - 1000) / 100.0;
+         state->energy_levels[i] = (double)(rand() % 1000) / 10.0; // 0.0 to 100.0
+         snprintf(state->molecule_types[i], 32, "Type%d", rand() % 5); // Example type
+    }
+}
+
+// Placeholder: Serialize simulation state to JSON using json-c
+static char *serialize_simulation_state(SimulationState *state) {
+    json_object *jobj = json_object_new_object();
+    json_object *jmolecules = json_object_new_array();
+
+    for (int i = 0; i < state->atom_count; ++i) {
+        json_object *jmol = json_object_new_object();
+        json_object *jpos = json_object_new_array();
+        json_object_array_add(jpos, json_object_new_double(state->molecule_positions[i][0]));
+        json_object_array_add(jpos, json_object_new_double(state->molecule_positions[i][1]));
+        json_object_array_add(jpos, json_object_new_double(state->molecule_positions[i][2]));
+
+        json_object_object_add(jmol, "id", json_object_new_int(i)); // Use index as ID for now
+        json_object_object_add(jmol, "type", json_object_new_string(state->molecule_types[i]));
+        json_object_object_add(jmol, "position", jpos);
+        json_object_object_add(jmol, "energy", json_object_new_double(state->energy_levels[i]));
+        json_object_array_add(jmolecules, jmol);
+    }
+
+    json_object_object_add(jobj, "molecules", jmolecules);
+
+    // Add feedback data if available
+    if (g_feedback_system) {
+        json_object* jfeedback = json_object_new_object();
+        json_object_object_add(jfeedback, "health_score", json_object_new_double(get_system_health_score(g_feedback_system)));
+
+        // Add recent feedback entries (assuming a function get_recent_feedback exists)
+        // json_object* jentries = get_recent_feedback_json(g_feedback_system, 5);
+        // if (jentries) {
+        //     json_object_object_add(jfeedback, "feedback_entries", jentries);
+        // }
+        json_object_object_add(jobj, "feedback", jfeedback);
+    }
+
+
+    const char *json_string = json_object_to_json_string_ext(jobj, JSON_C_TO_STRING_PLAIN); // Use json-c function
+    char *result = strdup(json_string); // Duplicate the string
+    json_object_put(jobj); // Release the json object
+
+    return result;
+}
+
+// Placeholder: Process commands from frontend using json-c
+static void process_frontend_command(const char *command) {
+    printf("Processing command: %s\n", command);
+    json_object *jobj = json_tokener_parse(command); // Use json-c parser
+    if (jobj && json_object_get_type(jobj) == json_type_object) { // Check if parsing succeeded and it's an object
+        json_object *jtype;
+        if (json_object_object_get_ex(jobj, "type", &jtype) && json_object_get_type(jtype) == json_type_string) {
+            const char *type = json_object_get_string(jtype);
+            if (strcmp(type, "add_node") == 0) {
+                json_object *jnode_type;
+                if (json_object_object_get_ex(jobj, "node_type", &jnode_type) && json_object_get_type(jnode_type) == json_type_string) {
+                    const char *node_type_str = json_object_get_string(jnode_type);
+                    add_node_to_simulation(node_type_str); // Call function from node_core
+                }
+            } else if (strcmp(type, "start_crawl") == 0) {
+                 json_object *jsearch_term;
+                 if (json_object_object_get_ex(jobj, "search_term", &jsearch_term) && json_object_get_type(jsearch_term) == json_type_string) {
+                     const char *search_term_str = json_object_get_string(jsearch_term);
+                     start_web_crawling(search_term_str);
+                 }
+            }
+            // Add more command handlers here
+        }
+        json_object_put(jobj); // Release json object
+    } else {
+        fprintf(stderr, "Failed to parse command JSON or not a JSON object: %s\n", command);
+        if (jobj) json_object_put(jobj); // Release if parsing succeeded but wasn't an object
+    }
+}
+
+// Placeholder: Call Ollama (replace with actual implementation)
+static char* call_ollama(const char* prompt) {
+    // This should interact with ollama_integration.c functions
+    printf("Calling Ollama with prompt: %s\n", prompt);
+    // char* response = ollama_generate(prompt); // Assuming this function exists
+    // return response ? response : strdup("{\"error\":\"Ollama call failed\"}");
+    return strdup("{\"response\":\"Placeholder response from Ollama\"}");
+}
+
+// Callback function for curl to write data into MemoryStruct
+static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t realsize = size * nmemb;
+    MemoryStruct *mem = (MemoryStruct *)userp;
+
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    if (!ptr) {
+        fprintf(stderr, "Error: Not enough memory (realloc returned NULL)\n");
+        return 0; // Indicate error
+    }
+
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0; // Null-terminate
+
+    return realsize;
+}
+
+// Function to fetch a web page using curl
+static char* fetch_web_page(const char* url) {
+    CURL* curl = NULL;
+    CURLcode res;
+    MemoryStruct chunk;
+
+    chunk.memory = malloc(1); // Start with 1 byte
+    if (!chunk.memory) {
+        fprintf(stderr, "Error: Failed to allocate initial memory for curl chunk\n");
+        return NULL;
+    }
+    chunk.size = 0;
+    chunk.memory[0] = '\0';
+
+    curl_global_init(CURL_GLOBAL_DEFAULT); // Ensure curl is initialized
+    curl = curl_easy_init();
+    if (!curl) {
+        fprintf(stderr, "Error: Failed to initialize curl easy handle\n");
+        free(chunk.memory);
+        curl_global_cleanup();
+        return NULL;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "KaleidoscopeAI-Crawler/1.0"); // Set user agent
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L); // Set timeout
+
+    res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        fprintf(stderr, "curl_easy_perform() failed for %s: %s\n", url, curl_easy_strerror(res));
+        free(chunk.memory);
+        chunk.memory = NULL; // Indicate failure
+    }
+
+    curl_easy_cleanup(curl);
+    // curl_global_cleanup(); // Cleanup should happen at server shutdown, not per request
+
+    return chunk.memory; // Return allocated buffer (or NULL on failure)
+}
+
+// Function to process a web crawl request (placeholder)
+static char* process_web_crawl(const char* url, const char* keywords) {
+    char* page_content = fetch_web_page(url);
+    if (!page_content) {
+        return strdup("{\"error\":\"Failed to fetch the page\"}");
+    }
+
+    // Simple extraction logic - replace with sophisticated parsing
+    size_t result_size = strlen(page_content) + 1024;
+    char* result = malloc(result_size);
+    if (!result) {
+         free(page_content);
+         return strdup("{\"error\":\"Memory allocation failed for result\"}");
+    }
+    snprintf(result, result_size, "{\"url\":\"%s\",\"content_length\":%zu, \"snippet\":\"%.200s...\"}",
+             url, strlen(page_content), page_content); // Show a snippet
+
+    free(page_content);
+    return result;
+}
+
+// Function to handle file upload (placeholder)
+static void handle_file_upload(const char* filename, const char* data, size_t len) {
+    printf("Received file: %s, size: %zu bytes\n", filename, len);
+
+    // Create a file in the uploads directory
+    char filepath[1024];
+    snprintf(filepath, sizeof(filepath), "uploads/%s", filename); // Save in ./uploads/
+
+    FILE* fp = fopen(filepath, "wb"); // Use "wb" for binary write
+    if (fp) {
+        fwrite(data, 1, len, fp);
+        fclose(fp);
+        printf("File saved to %s\n", filepath);
+        // Optionally, trigger data ingestion here
+        // ingest_file(g_ingestion_layer, filepath);
+    } else {
+        perror("Failed to save uploaded file");
+    }
+}
+
+// Thread function for web crawling
+void* web_crawler_thread(void *arg) {
+    pthread_mutex_lock(&crawler_task.mutex);
+    char* search_query = strdup(crawler_task.search_term); // Copy search term safely
+    pthread_mutex_unlock(&crawler_task.mutex);
+
+    if (!search_query) {
+        fprintf(stderr, "Error: Failed to duplicate search query\n");
+        return NULL;
+    }
+
+    printf("Crawler thread started for: %s\n", search_query);
+
+    // Use a search engine API or perform direct crawling
+    // Example using fetch_web_page (replace with actual crawling logic)
+    char search_url[512];
+    // Example: Construct a search URL (replace with actual API if available)
+    snprintf(search_url, sizeof(search_url), "https://duckduckgo.com/html/?q=%s", search_query); // Simple HTML search
+
+    char* crawl_result_data = fetch_web_page(search_url);
+
+    pthread_mutex_lock(&crawler_task.mutex);
+    if (crawler_task.result) {
+        free(crawler_task.result); // Free previous result
+    }
+    crawler_task.result = crawl_result_data; // Store new result (might be NULL)
+    crawler_task.is_completed = true;
+    pthread_mutex_unlock(&crawler_task.mutex);
+
+    printf("Crawler thread finished for: %s. Result size: %zu\n",
+           search_query, crawl_result_data ? strlen(crawl_result_data) : 0);
+
+    free(search_query);
+    return NULL;
+}
+
+// Function to initiate web crawling in a separate thread
+void start_web_crawling(const char* search_term) {
+    pthread_t thread_id;
+
+    pthread_mutex_lock(&crawler_task.mutex);
+    // Check if a crawl is already running for the same term?
+    if (!crawler_task.is_completed) {
+         printf("Web crawler is already busy.\n");
+         pthread_mutex_unlock(&crawler_task.mutex);
+         return;
+    }
+    if (crawler_task.search_term) {
+        free(crawler_task.search_term);
+    }
+    crawler_task.search_term = strdup(search_term);
+    if (crawler_task.result) { // Clear old result
+        free(crawler_task.result);
+        crawler_task.result = NULL;
+    }
+    crawler_task.is_completed = false;
+    pthread_mutex_unlock(&crawler_task.mutex);
+
+    if (!crawler_task.search_term) {
+        fprintf(stderr, "Error: Failed to duplicate search term for crawling.\n");
+        return;
+    }
+
+    if (pthread_create(&thread_id, NULL, web_crawler_thread, NULL) != 0) {
+        perror("Error creating web crawler thread");
+        // Reset task state if thread creation failed
+        pthread_mutex_lock(&crawler_task.mutex);
+        free(crawler_task.search_term);
+        crawler_task.search_term = NULL;
+        crawler_task.is_completed = true;
+        pthread_mutex_unlock(&crawler_task.mutex);
+    } else {
+        pthread_detach(thread_id); // Don't wait for the thread to finish
+        printf("Web crawling initiated for: %s\n", search_term);
+    }
+}
+
+// WebSocket callback function
+static int callback_websocket(struct lws *wsi, enum lws_callback_reasons reason,
+                              void *user, void *in, size_t len) {
+    switch (reason) {
+        case LWS_CALLBACK_ESTABLISHED:
+            printf("WebSocket connection established: %p\n", wsi);
+            // Optionally allocate per-session data here
+            break;
+
+        case LWS_CALLBACK_RECEIVE:
+            printf("WebSocket received data (len %zu): %.*s\n", len, (int)len, (char *)in);
+            // Process the received message (e.g., parse JSON command)
+            // Ensure 'in' is null-terminated if treating as string
+            char* received_msg = malloc(len + 1);
+            if (received_msg) {
+                memcpy(received_msg, in, len);
+                received_msg[len] = '\0';
+                process_frontend_command(received_msg);
+                free(received_msg);
+            }
+
+            // Example: Echo back
+            // lws_write(wsi, (unsigned char*)in, len, LWS_WRITE_TEXT);
+            break;
+
+        case LWS_CALLBACK_SERVER_WRITEABLE:
+            {
+                // This callback is triggered when the socket is ready to send data.
+                // Prepare the simulation state JSON payload
+                update_simulation_state(&current_state); // Update state before sending
+                char *json_payload = serialize_simulation_state(&current_state);
+                if (json_payload) {
+                    size_t payload_len = strlen(json_payload);
+                    // Need LWS_PRE bytes padding before the payload
+                    unsigned char *buffer = malloc(LWS_PRE + payload_len);
+                    if (buffer) {
+                        memcpy(buffer + LWS_PRE, json_payload, payload_len);
+                        int written = lws_write(wsi, buffer + LWS_PRE, payload_len, LWS_WRITE_TEXT);
+                        free(buffer);
+                        if (written < (int)payload_len) {
+                            fprintf(stderr, "Error writing to websocket\n");
+                        }
+                    } else {
+                        fprintf(stderr, "Failed to allocate buffer for websocket write\n");
+                    }
+                    free(json_payload);
+                }
+            }
+            break;
+
+        case LWS_CALLBACK_CLOSED:
+            printf("WebSocket connection closed: %p\n", wsi);
+            // Clean up per-session data if allocated
+            break;
+
+        // Handle HTTP requests if this protocol is also used for HTTP
+        case LWS_CALLBACK_HTTP:
+             // Serve static files (like the HTML visualizer) or handle API requests
+             // This requires more complex setup (mounting directories, etc.)
+             lws_serve_http_file(wsi, "advanced-quantum-cube.html", "text/html", NULL, 0);
+             // Close the connection after serving the file if it's just HTTP GET
+             // return -1; // Uncomment if you want to close after serving
+             break;
+
+        default:
+            // Ignore other callback reasons
+            break;
+    }
+    return 0; // Indicate success
+}
+
+// Define protocols array
+static const struct lws_protocols protocols[] = {
+    {
+        // HTTP handling first (if serving files)
+        "http-only",
+        callback_websocket, // Use the same callback for basic HTTP serving
+        0, // Per-session data size
+        0, // rx buffer size (0 for default)
+    },
+    {
+        // WebSocket protocol
+        LWS_PROTOCOL_NAME,
+        callback_websocket,
+        0, // Per-session data size
+        MAX_PAYLOAD_SIZE, // rx buffer size
+    },
+    { NULL, NULL, 0, 0 } // Terminator
+};
+
+// Initialize the WebSocket server
+int init_websocket_server(void) {
+    // Create uploads directory if it doesn't exist
+    if (mkdir("uploads", 0755) != 0 && errno != EEXIST) {
+         perror("Failed to create uploads directory");
+         // Decide if this is a fatal error
+    }
+
+    // Initialize curl globally
+    if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
+        fprintf(stderr, "Error: Failed to initialize curl globally\n");
+        return -1;
+    }
+
+    // Initialize libwebsocket context
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.port = PORT;
+    info.protocols = protocols;
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT; // Basic option
+    // Add SSL options here if needed:
+    // info.ssl_cert_filepath = "path/to/cert.pem";
+    // info.ssl_private_key_filepath = "path/to/key.pem";
+    info.gid = -1; // Run as current user/group
+    info.uid = -1;
+
+    printf("Initializing WebSocket server on port %d...\n", PORT);
+    context = lws_create_context(&info);
+    if (!context) {
+        fprintf(stderr, "Error: libwebsocket init failed\n");
+        curl_global_cleanup(); // Clean up curl if context creation fails
+        return -1;
+    }
+
+    // Setup signal handler
+    signal(SIGINT, sigint_handler);
+    signal(SIGTERM, sigint_handler);
+
+
+    printf("WebSocket server initialized successfully.\n");
+    return 0;
+}
+
+// Shut down the WebSocket server
+void destroy_websocket_server(void) {
+    if (context) {
+        printf("Destroying WebSocket server context...\n");
+        lws_context_destroy(context);
+        context = NULL;
+    }
+    curl_global_cleanup(); // Cleanup curl
+    printf("WebSocket server destroyed.\n");
+}
+
+// Service websocket connections (called periodically from main loop)
+void service_websocket(void) {
+    if (context && !force_exit) {
+        // Request a callback to send data periodically
+        // This should ideally be done more selectively, only when data changes
+        lws_callback_on_writable_all_protocol(context, &protocols[1]); // Trigger writeable for WS protocol
+
+        // Service the context (0 timeout = non-blocking)
+        lws_service(context, 0);
+    }
+}
+
+// Function to broadcast message to all connected clients (implementation needed)
+int broadcast_message(const char* payload, uint32_t length, bool is_binary) {
+    if (!context) return -1;
+    // Iterate through connected clients and use lws_write
+    // This requires managing client connections (e.g., in a list)
+    printf("Broadcasting message (length %u): %.*s\n", length, length, payload);
+    // Placeholder: Needs proper implementation using lws client iteration
+    return 0;
+}
+
+// --- Removed main() function ---
+// The main loop is now in main.c
