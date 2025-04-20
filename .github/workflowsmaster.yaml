@@ -1,0 +1,152 @@
+```yaml
+name: Advanced CI for Python and C
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.12']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch full history for commit analysis
+
+    - name: Cache dependencies
+      uses: actions/cache@v4.2.3
+      with:
+        path: |
+          ~/.cache/pip
+          ~/.ccache
+        key: ${{ runner.os }}-deps-${{ matrix.python-version }}-${{ hashFiles('requirements.txt', 'Makefile') }}
+        restore-keys: |
+          ${{ runner.os }}-deps-${{ matrix.python-version }}-
+        enableCrossOsArchive: false
+        fail-on-cache-miss: false
+        save-always: true
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc g++ libcurl4-openssl-dev libssl-dev ccache clang-tidy clang-format
+
+    - name: Setup Flowpipe
+      uses: turbot/flowpipe-action-setup@v1.0.0
+      with:
+        flowpipe-version: latest
+
+    - name: Create and activate virtual environment
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        python -m pip install --upgrade pip
+
+    - name: Install Python dependencies
+      run: |
+        source venv/bin/activate
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          echo "Warning: requirements.txt not found. Skipping Python dependency installation."
+        fi
+      continue-on-error: true
+
+    - name: Run C/C++ Linter
+      uses: cpp-linter/cpp-linter-action@v2.14.0
+      with:
+        style: llvm
+        extensions: c,h,cpp,hpp
+        tidy-checks: 'boost-*,bugprone-*,performance-*,readability-*,portability-*,modernize-*,clang-analyzer-*,cppcoreguidelines-*'
+        version: 14
+        verbosity: info
+        files-changed-only: true
+        ignore: .github
+        thread-comments: true
+        no-lgtm: true
+        step-summary: true
+        file-annotations: true
+
+    - name: Build C code
+      id: build_c_code
+      run: |
+        export CC="ccache gcc"
+        make -j$(nproc) > build.log 2>&1
+      continue-on-error: true
+
+    - name: Retry building C code if failed
+      if: steps.build_c_code.outcome == 'failure'
+      run: |
+        export CC="ccache gcc"
+        make clean && make -j$(nproc) > build.log 2>&1
+
+    - name: Upload build logs
+      if: steps.build_c_code.outcome == 'failure'
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-logs
+        path: build.log
+
+    - name: Run comprehensive Python tests
+      run: |
+        source venv/bin/activate
+        if [ -f comprehensive-test.py ]; then
+          python comprehensive-test.py
+        else
+          echo "Warning: comprehensive-test.py not found. Skipping comprehensive tests."
+        fi
+      continue-on-error: true
+
+    - name: Run unit tests with pytest
+      uses: fylein/python-pytest-github-action@v2
+      with:
+        pytest-args: --cov=./ --cov-report=xml
+      continue-on-error: true
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: coverage.xml
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const issue = await github.rest.issues.create({
+            owner,
+            repo,
+            title: 'CI Workflow Failure',
+            body: 'The CI workflow failed. Check the logs, build artifacts, and linter reports for details.\n\nRun ID: ${{ github.run_id }}',
+          });
+          console.log(`Issue created: ${issue.data.html_url}`);
+
+    - name: Generate dependency report
+      run: |
+        source venv/bin/activate
+        pip list > pip-requirements-report.txt
+        dpkg -l | grep -E 'gcc|g++|libcurl|libssl|ccache|clang-tidy|clang-format' > system-requirements-report.txt
+      continue-on-error: true
+
+    - name: Upload dependency reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: dependency-reports
+        path: |
+          pip-requirements-report.txt
+          system-requirements-report.txt
+```
