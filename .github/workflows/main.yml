@@ -1,0 +1,106 @@
+name: Enhanced CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Cache dependencies
+      uses: actions/cache@v2
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.12'
+
+    - name: Create virtual environment
+      run: python -m venv venv
+
+    - name: Install Python dependencies
+      run: |
+        source venv/bin/activate
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+      continue-on-error: true
+
+    - name: Check for missing dependencies
+      run: |
+        if [ ! -f requirements.txt ]; then
+          echo "requirements.txt not found. Please add it to the repository."
+          exit 1
+        fi
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libcurl4-openssl-dev libssl-dev
+
+    - name: Install clang-tidy
+      run: sudo apt-get install -y clang-tidy
+
+    - name: Run clang-tidy
+      run: clang-tidy *.c -- -I.
+
+    - name: Install ccache
+      run: sudo apt-get install -y ccache
+
+    - name: Build C code
+      id: build_c_code
+      run: make CC="ccache gcc" > build.log 2>&1
+      continue-on-error: true
+
+    - name: Retry building C code if failed
+      if: steps.build_c_code.outcome == 'failure'
+      run: make clean && make CC="ccache gcc" > build.log 2>&1
+
+    - name: Upload build logs
+      if: steps.build_c_code.outcome == 'failure'
+      uses: actions/upload-artifact@v2
+      with:
+        name: build-logs
+        path: build.log
+
+    - name: Run comprehensive test
+      run: |
+        source venv/bin/activate
+        python comprehensive-test.py
+
+    - name: Run tests
+      run: |
+        source venv/bin/activate
+        pytest
+
+    - name: Generate coverage report
+      run: |
+        source venv/bin/activate
+        coverage run -m pytest && coverage report
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v2
+      with:
+        name: coverage-report
+        path: coverage.xml
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v3
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const issue = await github.issues.create({
+            owner,
+            repo,
+            title: 'CI Failure',
+            body: 'The CI workflow failed. Please check the logs for details.',
+          });
+          console.log(`Issue created: ${issue.data.html_url}`);
